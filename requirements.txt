@@ -1,0 +1,7 @@
+python-dotenv
+vkbottle
+aiohttp
+openpyxl
+SQLAlchemy>=2.0
+asyncpg
+alembic

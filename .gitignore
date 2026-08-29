@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.vscode/
+.idea/
+.vkbottle/
+bandit-report.json
+pip-audit-report.json
