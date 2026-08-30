@@ -25,19 +25,14 @@ async def _start_scheduler() -> None:
     logger.info("Планировщик отчётов запущен")
 
 
-# Флаг для предотвращения дублирования scheduler при retry polling
-_scheduler_started = False
-
-
 def run_vk_polling() -> None:
     retry_delay = 5
 
     while True:
         try:
-            global _scheduler_started
-            if not _scheduler_started:
-                vk_bot.on_startup.append(_start_scheduler())
-                _scheduler_started = True
+            # vkbottle очищает on_startup после каждого run(),
+            # поэтому добавляем свежую coroutine перед каждым запуском
+            vk_bot.on_startup.append(_start_scheduler())
             vk_bot.run()
             logger.warning("VK polling stopped; retrying in %s seconds", retry_delay)
         except (aiohttp.ClientError, OSError, socket.gaierror, TimeoutError) as error:

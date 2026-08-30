@@ -1,0 +1,183 @@
+﻿{% extends "base.html" %}
+{% block title %}Заявки - Admin Panel{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>📋 Заявки</h2>
+    </div>
+    
+    <!-- Фильтры -->
+    <div class="filter-bar">
+        <input type="text" id="search" placeholder="🔍 Поиск по теме/описанию..." 
+               onkeyup="filterTable()">
+        <select id="status-filter" onchange="filterTable()">
+            <option value="">Все статусы</option>
+            <option value="Новое">Новое</option>
+            <option value="В обработке">В обработке</option>
+            <option value="Передано в администрацию СГ">Передано в адм.</option>
+            <option value="Передано в Хозчасть">Передано в хоз.</option>
+            <option value="Выполнено">Выполнено</option>
+            <option value="Выполнено (авто)">Выполнено (авто)</option>
+            <option value="Анонимное">Анонимное</option>
+        </select>
+        <select id="dept-filter" onchange="filterTable()">
+            <option value="">Все отделы</option>
+            {% for dept in departments %}
+            <option value="{{ dept.id }}">{{ dept.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    
+    <div class="table-container">
+        <table id="tickets-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Тема</th>
+                    <th>Пользователь</th>
+                    <th>Отдел</th>
+                    <th>Статус</th>
+                    <th>Аноним</th>
+                    <th>Дата</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ticket in tickets %}
+                <tr data-status="{{ ticket.status.value }}" data-dept="{{ ticket.department.id if ticket.department else '' }}">
+                    <td>{{ ticket.id }}</td>
+                    <td>{{ ticket.topic or '—' }}</td>
+                    <td>
+                        {% if ticket.is_anonymous or not ticket.user %}
+                        <span class="muted">Аноним</span>
+                        {% else %}
+                            {{ ticket.user.full_name or '—' }}
+                        {% endif %}
+                    </td>
+                    <td>{{ ticket.department.name if ticket.department else '—' }}</td>
+                    <td>
+                        {% if ticket.status.value == 'Новое' %}
+                        <span class="badge badge-new">{{ ticket.status.value }}</span>
+                        {% elif ticket.status.value == 'В обработке' %}
+                        <span class="badge badge-in-progress">{{ ticket.status.value }}</span>
+                        {% elif 'Выполнено' in ticket.status.value %}
+                        <span class="badge badge-completed">{{ ticket.status.value }}</span>
+                        {% else %}
+                        <span class="badge badge-anonymous">{{ ticket.status.value }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if ticket.is_anonymous %}
+                        ⚠️
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                    <td>{{ ticket.created_at.strftime('%d.%m.%Y') if ticket.created_at else '—' }}</td>
+                    <td>
+                        <button class="btn btn-secondary btn-small" onclick="openTicket({{ ticket.id }})">
+                            👁 Открыть
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" class="empty-state">
+                        Заявок пока нет
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal для просмотра заявки -->
+<div id="ticket-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modal-title">Заявка #1</h3>
+            <button class="close-btn" onclick="closeTicketModal()">&times;</button>
+        </div>
+        <div id="modal-body">
+            <!-- Динамическое содержимое -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function filterTable() {
+    const search = document.getElementById('search').value.toLowerCase();
+    const statusFilter = document.getElementById('status-filter').value;
+    const deptFilter = document.getElementById('dept-filter').value;
+    const rows = document.querySelectorAll('#tickets-table tbody tr');
+    
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        const status = row.dataset.status || '';
+        const dept = row.dataset.dept || '';
+        
+        const matchSearch = !search || text.includes(search);
+        const matchStatus = !statusFilter || status === statusFilter;
+        const matchDept = !deptFilter || dept === deptFilter;
+        
+        row.style.display = (matchSearch && matchStatus && matchDept) ? '' : 'none';
+    });
+}
+
+function openTicket(id) {
+    fetch(`/tickets/${id}`)
+        .then(res => {
+            if (!res.ok) throw new Error('Не удалось загрузить заявку #' + id);
+            return res.json();
+        })
+        .then(ticket => {
+            document.getElementById('modal-title').textContent = `Заявка #${ticket.id}`;
+            document.getElementById('modal-body').innerHTML = `
+                <div style="margin-bottom: 15px;">
+                    <strong>Тема:</strong> ${ticket.topic || '—'}
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Описание:</strong><br>
+                    <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-top: 5px;">
+                        ${ticket.description || '—'}
+                    </div>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Пользователь:</strong> 
+                    ${ticket.user ? (ticket.user.full_name || 'Аноним') : 'Аноним'}
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Отдел:</strong> ${ticket.department ? ticket.department.name : '—'}
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Статус:</strong> ${ticket.status.value}
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Дата:</strong> ${ticket.created_at ? new Date(ticket.created_at).toLocaleString('ru-RU') : '—'}
+                </div>
+                ${ticket.response_text ? `
+                <div style="margin-bottom: 15px;">
+                    <strong>Ответ:</strong><br>
+                    <div style="background: #d1fae5; padding: 15px; border-radius: 8px; margin-top: 5px;">
+                        ${ticket.response_text}
+                    </div>
+                </div>
+                ` : ''}
+            `;
+            document.getElementById('ticket-modal').classList.add('active');
+        });
+}
+
+function closeTicketModal() {
+    document.getElementById('ticket-modal').classList.remove('active');
+}
+
+document.getElementById('ticket-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeTicketModal();
+});
+</script>
+{% endblock %}

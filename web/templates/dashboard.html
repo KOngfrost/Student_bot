@@ -1,0 +1,115 @@
+﻿{% extends "base.html" %}
+{% block title %}Дашборд - Admin Panel{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom: 30px;">📊 Дашборд</h1>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3>Всего заявок</h3>
+        <div class="value" data-counter>{{ stats.total_tickets }}</div>
+    </div>
+    <div class="stat-card yellow">
+        <h3>В обработке</h3>
+        <div class="value" data-counter>{{ stats.in_progress }}</div>
+    </div>
+    <div class="stat-card green">
+        <h3>Выполнено</h3>
+        <div class="value" data-counter>{{ stats.completed }}</div>
+    </div>
+    <div class="stat-card red">
+        <h3>Новые</h3>
+        <div class="value" data-counter>{{ stats.new_tickets }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Последние заявки</h2>
+        <a href="/tickets/" class="btn btn-secondary btn-small">Все заявки →</a>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Тема</th>
+                    <th>Отдел</th>
+                    <th>Статус</th>
+                    <th>Дата</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ticket in recent_tickets %}
+                <tr>
+                    <td>{{ ticket.id }}</td>
+                    <td>{{ ticket.topic or '—' }}</td>
+                    <td>{{ ticket.department.name if ticket.department else '—' }}</td>
+                    <td>
+                        {% if ticket.status.value == 'Новое' %}
+                        <span class="badge badge-new">{{ ticket.status.value }}</span>
+                        {% elif ticket.status.value == 'В обработке' %}
+                        <span class="badge badge-in-progress">{{ ticket.status.value }}</span>
+                        {% elif 'Выполнено' in ticket.status.value %}
+                        <span class="badge badge-completed">{{ ticket.status.value }}</span>
+                        {% else %}
+                        <span class="badge badge-anonymous">{{ ticket.status.value }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ ticket.created_at.strftime('%d.%m.%Y %H:%M') if ticket.created_at else '—' }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="empty-state">
+                        Заявок пока нет
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>ℹ️ О системе</h2>
+    </div>
+    <p style="color: var(--text-secondary); line-height: 1.8;">
+        <strong>Student Bot</strong> — система управления обращениями студентов.<br>
+        Версия: <strong>1.0.0</strong><br>
+        Подключение: <strong>Tailscale</strong> (только из сети Tailscale)<br>
+        <br>
+        <a href="/admin/admins/" class="btn btn-primary btn-small">Управление админами</a>
+        <a href="/tickets/" class="btn btn-secondary btn-small" style="margin-left: 10px;">Все заявки</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Плавный счётчик: числа в стат-карточках «набегают» от 0 до значения
+(function () {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var counters = document.querySelectorAll('[data-counter]');
+    var duration = 900;
+
+    function animate(el) {
+        var target = parseInt(el.textContent, 10) || 0;
+        if (target === 0) return;
+        var start = null;
+        function step(ts) {
+            if (!start) start = ts;
+            var progress = Math.min((ts - start) / duration, 1);
+            var eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+            el.textContent = Math.round(target * eased);
+            if (progress < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+    }
+
+    counters.forEach(function (el, i) {
+        setTimeout(function () { animate(el); }, 150 + i * 100);
+    });
+})();
+</script>
+{% endblock %}

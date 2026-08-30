@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.application import MIMEApplication
@@ -271,7 +272,7 @@ async def send_report_to_vk(api, admin_vk_id: int, report_bytes: bytes, filename
 
     await api.messages.send(
         peer_id=admin_vk_id,
-        random_id=0,
+        random_id=random.randint(1, 2**31 - 1),
         message="Ежедневный отчёт во вложении.",
         attachment=attachment,
     )

@@ -29,5 +29,22 @@ services:
       db:
         condition: service_healthy
 
+  web-admin:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: student_bot_web
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    environment:
+      - TAILSCALE_AUTH_KEY=${TAILSCALE_AUTH_KEY:-}
+    depends_on:
+      - db
+      - bot
+
 volumes:
   postgres_data_recovered:
+

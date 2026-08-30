@@ -1,0 +1,125 @@
+﻿{% extends "base.html" %}
+{% block title %}События - Admin Panel{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>🎉 События</h2>
+        <button class="btn btn-success" onclick="openModal()">➕ Создать событие</button>
+    </div>
+    
+    {% if success %}
+    <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    
+    <div class="filter-bar">
+        <select id="event-dept-filter" onchange="filterTable()">
+            <option value="">Все отделы</option>
+            {% for dept in departments %}
+            <option value="{{ dept.id }}">{{ dept.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Отдел</th>
+                    <th>Название</th>
+                    <th>Дата</th>
+                    <th>Регистраций</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in events %}
+                <tr data-dept="{{ event.department.id }}">
+                    <td>{{ event.id }}</td>
+                    <td>{{ event.department.name }}</td>
+                    <td>{{ event.title }}</td>
+                    <td>{{ event.event_date.strftime('%d.%m.%Y %H:%M') if event.event_date else '—' }}</td>
+                    <td>{{ event.registrations|length }}</td>
+                    <td>
+                        <a href="/events/{{ event.id }}/delete" 
+                           class="btn btn-danger btn-small"
+                           onclick="return confirm('Удалить это событие?')">
+                            🗑
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="empty-state">
+                        Событий пока нет
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Создать событие</h3>
+            <button class="close-btn" onclick="closeModal()">&times;</button>
+        </div>
+        <form method="POST" action="/events/">
+            <div class="form-group">
+                <label for="department_id">Отдел</label>
+                <select id="department_id" name="department_id" required>
+                    {% for dept in departments %}
+                    <option value="{{ dept.id }}">{{ dept.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="title">Название</label>
+                <input type="text" id="title" name="title" required>
+            </div>
+            <div class="form-group">
+                <label for="description">Описание</label>
+                <textarea id="description" name="description" rows="4"></textarea>
+            </div>
+            <div class="form-group">
+                <label for="event_date">Дата и время</label>
+                <input type="datetime-local" id="event_date" name="event_date" required>
+            </div>
+            <button type="submit" class="btn btn-success" style="width: 100%;">Создать</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function openModal() {
+    document.getElementById('modal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('modal').classList.remove('active');
+}
+
+document.getElementById('modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+function filterTable() {
+    const deptFilter = document.getElementById('event-dept-filter').value;
+    const rows = document.querySelectorAll('tbody tr');
+    
+    rows.forEach(row => {
+        const dept = row.dataset.dept || '';
+        row.style.display = (!deptFilter || dept === deptFilter) ? '' : 'none';
+    });
+}
+</script>
+{% endblock %}

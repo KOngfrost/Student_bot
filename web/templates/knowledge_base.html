@@ -1,0 +1,121 @@
+﻿{% extends "base.html" %}
+{% block title %}База знаний - Admin Panel{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>📚 База знаний</h2>
+        <button class="btn btn-success" onclick="openModal()">➕ Добавить запись</button>
+    </div>
+    
+    {% if success %}
+    <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    
+    <div class="filter-bar">
+        <select id="kb-dept-filter" onchange="filterTable()">
+            <option value="">Все отделы</option>
+            {% for dept in departments %}
+            <option value="{{ dept.id }}">{{ dept.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Отдел</th>
+                    <th>Ключевые слова</th>
+                    <th>Ответ</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for kb in knowledge_base %}
+                <tr data-dept="{{ kb.department.id }}">
+                    <td>{{ kb.id }}</td>
+                    <td>{{ kb.department.name }}</td>
+                    <td><code>{{ kb.keywords }}</code></td>
+                    <td>{{ kb.answer[:50] }}{% if kb.answer|length > 50 %}...{% endif %}</td>
+                    <td>
+                        <a href="/knowledge/{{ kb.id }}/delete" 
+                           class="btn btn-danger btn-small"
+                           onclick="return confirm('Удалить эту запись?')">
+                            🗑
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="empty-state">
+                        Записей пока нет
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Добавить запись в базу знаний</h3>
+            <button class="close-btn" onclick="closeModal()">&times;</button>
+        </div>
+        <form method="POST" action="/knowledge/">
+            <div class="form-group">
+                <label for="department_id">Отдел</label>
+                <select id="department_id" name="department_id" required>
+                    {% for dept in departments %}
+                    <option value="{{ dept.id }}">{{ dept.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="keywords">Ключевые слова (через запятую)</label>
+                <input type="text" id="keywords" name="keywords" required 
+                       placeholder="сантехника, кран, вода">
+            </div>
+            <div class="form-group">
+                <label for="answer">Ответ</label>
+                <textarea id="answer" name="answer" rows="5" required 
+                          placeholder="Пожалуйста, обратитесь в Жилбыт..."></textarea>
+            </div>
+            <button type="submit" class="btn btn-success" style="width: 100%;">Добавить</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function openModal() {
+    document.getElementById('modal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('modal').classList.remove('active');
+}
+
+document.getElementById('modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+function filterTable() {
+    const deptFilter = document.getElementById('kb-dept-filter').value;
+    const rows = document.querySelectorAll('tbody tr');
+    
+    rows.forEach(row => {
+        const dept = row.dataset.dept || '';
+        row.style.display = (!deptFilter || dept === deptFilter) ? '' : 'none';
+    });
+}
+</script>
+{% endblock %}

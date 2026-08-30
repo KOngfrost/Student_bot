@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 __pycache__/
 *.py[cod]
 .venv/
@@ -8,3 +10,9 @@ venv/
 .vkbottle/
 bandit-report.json
 pip-audit-report.json
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.log

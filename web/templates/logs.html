@@ -1,0 +1,42 @@
+﻿{% extends "base.html" %}
+{% block title %}Логи - Admin Panel{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>📝 Логи действий</h2>
+        <a href="/logs/export" class="btn btn-secondary btn-small">📥 Экспорт</a>
+    </div>
+    
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Пользователь</th>
+                    <th>Действие</th>
+                    <th>Детали</th>
+                    <th>Дата</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td>{{ log.id }}</td>
+                    <td>{{ log.user.full_name if log.user else '—' }}</td>
+                    <td><code>{{ log.action }}</code></td>
+                    <td>{{ log.details[:100] }}{% if log.details and log.details|length > 100 %}...{% endif %}</td>
+                    <td>{{ log.created_at.strftime('%d.%m.%Y %H:%M') if log.created_at else '—' }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="empty-state">
+                        Логов пока нет
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

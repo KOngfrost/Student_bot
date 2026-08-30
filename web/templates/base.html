@@ -1,0 +1,82 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Admin Panel{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <script>
+        // Применяем тему до отрисовки, чтобы не было «вспышки» светлой темы
+        (function () {
+            var theme = localStorage.getItem('theme');
+            if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="container">
+        {% if user %}
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>🎓 Admin Panel</h2>
+                <div class="user-info">
+                    <span>👤 {{ user.full_name or 'Admin' }}</span>
+                    <a href="/auth/logout" class="btn-logout">Выйти</a>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/" class="nav-link {% if active == 'dashboard' %}active{% endif %}">📊 Дашборд</a>
+                <a href="/tickets/" class="nav-link {% if active == 'tickets' %}active{% endif %}">📋 Заявки</a>
+                <a href="/admin/admins/" class="nav-link {% if active == 'admins' %}active{% endif %}">👥 Админы</a>
+                <a href="/knowledge/" class="nav-link {% if active == 'knowledge' %}active{% endif %}">📚 База знаний</a>
+                <a href="/faq/" class="nav-link {% if active == 'faq' %}active{% endif %}">❓ FAQ</a>
+                <a href="/events/" class="nav-link {% if active == 'events' %}active{% endif %}">🎉 События</a>
+                <a href="/logs/" class="nav-link {% if active == 'logs' %}active{% endif %}">📝 Логи</a>
+            </nav>
+            <button class="theme-toggle" id="theme-toggle" type="button" title="Переключить тему">
+                <span id="theme-icon">🌙</span>
+                <span id="theme-label">Тёмная тема</span>
+            </button>
+        </aside>
+        {% endif %}
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    <script>
+        // Переключение светлой/тёмной темы с сохранением выбора
+        (function () {
+            var toggle = document.getElementById('theme-toggle');
+            if (!toggle) return;
+            var icon = document.getElementById('theme-icon');
+            var label = document.getElementById('theme-label');
+
+            function sync() {
+                var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+                icon.textContent = dark ? '☀️' : '🌙';
+                label.textContent = dark ? 'Светлая тема' : 'Тёмная тема';
+            }
+            sync();
+
+            toggle.addEventListener('click', function () {
+                var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+                if (dark) {
+                    document.documentElement.removeAttribute('data-theme');
+                    localStorage.setItem('theme', 'light');
+                } else {
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                    localStorage.setItem('theme', 'dark');
+                }
+                sync();
+            });
+        })();
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
