@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import smtplib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -45,7 +45,7 @@ def _department_name(department) -> str:
 
 async def _fetch_report_data(report_date: datetime) -> dict:
     """Собирает данные для отчёта за указанную дату."""
-    day_start = datetime.combine(report_date.date(), datetime.min.time())
+    day_start = datetime.combine(report_date.date(), datetime.min.time(), tzinfo=timezone.utc)
     day_end = day_start + timedelta(days=1)
 
     async with async_session_maker() as session:
@@ -163,11 +163,18 @@ def _build_details_sheet(workbook: Workbook, data: dict) -> None:
 
     for ticket in data["tickets"]:
         marker = "авто" if ticket.auto_closed else "ручной"
+        # Маскируем персональные данные для анонимных заявок
+        if ticket.is_anonymous:
+            full_name = "Аноним"
+            dormitory = "Аноним"
+        else:
+            full_name = _user_full_name(ticket.user)
+            dormitory = _user_dormitory(ticket.user)
         sheet.append(
             [
                 ticket.id,
-                _user_full_name(ticket.user),
-                _user_dormitory(ticket.user),
+                full_name,
+                dormitory,
                 _department_name(ticket.department),
                 ticket.topic or "",
                 ticket.description or "",
@@ -228,7 +235,7 @@ def send_report_email(report_bytes: bytes, filename: str) -> None:
         return
 
     msg = MIMEMultipart()
-    msg["Subject"] = f"Отчёт студенческого бота за {datetime.now():%d.%m.%Y}"
+    msg["Subject"] = f"Отчёт студенческого бота за {datetime.now(timezone.utc):%d.%m.%Y}"
     msg["From"] = settings.SMTP_FROM
     msg["To"] = ", ".join(settings.REPORT_EMAILS)
 
@@ -276,8 +283,8 @@ def _seconds_until_report() -> float:
     except ValueError as error:
         raise ValueError("REPORT_TIME должен быть в формате HH:MM") from error
 
-    now = datetime.now()
-    next_report = datetime.combine(now.date(), report_time)
+    now = datetime.now(timezone.utc)
+    next_report = datetime.combine(now.date(), report_time, tzinfo=timezone.utc)
     if next_report <= now:
         next_report += timedelta(days=1)
     return (next_report - now).total_seconds()
@@ -288,17 +295,31 @@ async def _report_loop(api, admin_vk_id: int) -> None:
         try:
             await asyncio.sleep(_seconds_until_report())
 
-            report_date = datetime.now() - timedelta(days=1)
+            report_date = datetime.now(timezone.utc) - timedelta(days=1)
             data = await _fetch_report_data(report_date)
             report_bytes = build_daily_report(data, report_date)
             filename = f"report_{report_date:%Y-%m-%d}.xlsx"
 
+            # Отправка в VK — отдельный try/except
+            vk_failed = False
             if admin_vk_id:
-                await send_report_to_vk(api, admin_vk_id, report_bytes, filename)
-            if settings.REPORT_EMAILS:
-                await asyncio.to_thread(send_report_email, report_bytes, filename)
+                try:
+                    await send_report_to_vk(api, admin_vk_id, report_bytes, filename)
+                except Exception:
+                    logger.exception("Не удалось отправить отчёт в VK")
+                    vk_failed = True
 
-            logger.info("Ежедневный отчёт отправлен")
+            # Отправка по email — отдельный try/except
+            email_failed = False
+            if settings.REPORT_EMAILS:
+                try:
+                    await asyncio.to_thread(send_report_email, report_bytes, filename)
+                except Exception:
+                    logger.exception("Не удалось отправить отчёт по email")
+                    email_failed = True
+
+            if not vk_failed and not email_failed:
+                logger.info("Ежедневный отчёт отправлен")
         except Exception:
             logger.exception("Не удалось отправить ежедневный отчёт")
             await asyncio.sleep(60)

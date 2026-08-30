@@ -1,8 +1,9 @@
-from sqlalchemy import func, select
+from sqlalchemy import func, select, inspect
+from sqlalchemy.exc import IntegrityError
 
 from core.config import settings
 from core.database import async_session_maker
-from core.models import Admin, Ticket, User
+from core.models import Admin, Log, Ticket, User
 
 
 class BotCore:
@@ -12,11 +13,22 @@ class BotCore:
             db_user = await session.scalar(
                 select(User).where(User.vk_id == vk_id)
             )
-            if db_user is None:
-                db_user = User(vk_id=vk_id)
-                session.add(db_user)
+            if db_user is not None:
+                return db_user
+            db_user = User(vk_id=vk_id)
+            session.add(db_user)
+            try:
                 await session.commit()
                 await session.refresh(db_user)
+            except IntegrityError:
+                # Race condition: пользователь создан другим потоком
+                await session.rollback()
+                db_user = await session.scalar(
+                    select(User).where(User.vk_id == vk_id)
+                )
+                if db_user is None:
+                    raise RuntimeError(f"Не удалось получить пользователя vk_id={vk_id} после race condition")
+                return db_user
             return db_user
 
     @staticmethod
@@ -55,3 +67,15 @@ class BotCore:
                 .where(Ticket.status.not_in(("COMPLETED", "COMPLETED_AUTO")))
             )
             return int(count or 0)
+
+    @staticmethod
+    async def log_action(user: User, action: str, details: str = "") -> None:
+        """Записывает действие пользователя в журнал."""
+        async with async_session_maker() as session:
+            log_entry = Log(
+                user_id=user.id,
+                action=action,
+                details=details,
+            )
+            session.add(log_entry)
+            await session.commit()

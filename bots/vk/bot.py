@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from core.vk_compat import patch_vkbottle_logging
 
@@ -28,6 +28,7 @@ def _main_reply_text() -> str:
 async def start_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     has_tickets = await BotCore.get_user_tickets_count(user) > 0
+    await BotCore.log_action(user, "start", "Пользователь нажал /start")
     keyboard = build_main_keyboard(has_tickets, await BotCore.is_admin(user))
     await message.answer(_main_reply_text(), keyboard=keyboard)
 
@@ -88,11 +89,13 @@ async def anonymous_section(message: Message):
     text=["Админ-панель", "Админ-панель"]
 )
 async def admin_panel(message: Message):
-    if not BotCore.is_admin_vk_id(message.from_id):
-        await message.answer("У вас нет доступа к админки.\n\n"
-                             " По всем вопросам обращайтесь к главному администратору.")
+    user = await BotCore.get_or_create_user(vk_id=message.from_id)
+    if not await BotCore.is_admin(user):
+        await message.answer("У вас нет доступа к админ-панели.\n\n"
+                              "По всем вопросам обращайтесь к главному администратору.")
         return
 
+    await BotCore.log_action(user, "admin_panel", "Открыта админ-панель")
     await message.answer(
         "Админ-панель\n\n"
         "Нажми «Сформировать отчет», чтобы получить файл в VK.",
@@ -102,12 +105,13 @@ async def admin_panel(message: Message):
 
 @vk_bot.on.private_message(text=["Сформировать отчет", "Сформировать отчет"])
 async def report_handler(message: Message):
-    if not BotCore.is_admin_vk_id(message.from_id):
-        await message.answer("У тебя нет доступа к отчетам.")
+    user = await BotCore.get_or_create_user(vk_id=message.from_id)
+    if not await BotCore.is_admin(user):
+        await message.answer("У вас нет доступа к отчетам.")
         return
 
     try:
-        report_date = datetime.now() - timedelta(days=1)
+        report_date = datetime.now(timezone.utc) - timedelta(days=1)
         data = await _fetch_report_data(report_date)
         report_bytes = build_daily_report(data, report_date)
         filename = f"report_{report_date:%Y-%m-%d}.xlsx"
@@ -117,7 +121,9 @@ async def report_handler(message: Message):
             report_bytes,
             filename,
         )
+        await BotCore.log_action(user, "report_generated", f"Сформирован отчёт {filename}")
     except (ValueError, OSError, KeyError, VKAPIError) as error:
+        await BotCore.log_action(user, "report_failed", f"Ошибка при формировании отчёта: {error}")
         await message.answer(f"Не удалось отправить отчет: {error}")
         return
     await message.answer("Отчет сформирован и отправлен.")

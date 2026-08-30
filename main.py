@@ -22,6 +22,11 @@ def initialize_database() -> None:
 async def _start_scheduler() -> None:
     """Запускает asyncio-планировщик отчётов в event loop бота."""
     start_report_scheduler(vk_bot.api, settings.VK_REPORT_ADMIN_ID)
+    logger.info("Планировщик отчётов запущен")
+
+
+# Флаг для предотвращения дублирования scheduler при retry polling
+_scheduler_started = False
 
 
 def run_vk_polling() -> None:
@@ -29,7 +34,10 @@ def run_vk_polling() -> None:
 
     while True:
         try:
-            vk_bot.on_startup.append(_start_scheduler())
+            global _scheduler_started
+            if not _scheduler_started:
+                vk_bot.on_startup.append(_start_scheduler())
+                _scheduler_started = True
             vk_bot.run()
             logger.warning("VK polling stopped; retrying in %s seconds", retry_delay)
         except (aiohttp.ClientError, OSError, socket.gaierror, TimeoutError) as error:

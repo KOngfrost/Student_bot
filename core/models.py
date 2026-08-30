@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, DateTime,
-    ForeignKey, Enum as SAEnum, UniqueConstraint
+    ForeignKey, Enum as SAEnum, UniqueConstraint, Index, CheckConstraint
 )
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
@@ -56,8 +56,8 @@ class Admin(Base):
     __tablename__ = "admins"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
     role = Column(SAEnum(UserRole), default=UserRole.ADMIN)
 
     user = relationship("User")
@@ -66,16 +66,22 @@ class Admin(Base):
 
 class Ticket(Base):
     __tablename__ = "tickets"
+    __table_args__ = (
+        Index("ix_tickets_user_id", "user_id"),
+        Index("ix_tickets_department_id", "department_id"),
+        Index("ix_tickets_status", "status"),
+        Index("ix_tickets_created_at", "created_at"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
     topic = Column(String, nullable=True)
     description = Column(Text, nullable=True)
-    status = Column(SAEnum(TicketStatus), default=TicketStatus.NEW)
+    status = Column(SAEnum(TicketStatus), default=TicketStatus.NEW, nullable=False)
     response_text = Column(Text, nullable=True)
-    is_anonymous = Column(Boolean, default=False)
-    auto_closed = Column(Boolean, default=False)
+    is_anonymous = Column(Boolean, default=False, nullable=False)
+    auto_closed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -98,10 +104,17 @@ class KnowledgeBase(Base):
 
 class FAQNode(Base):
     __tablename__ = "faq_nodes"
+    __table_args__ = (
+        # Для финальных узлов обязателен final_answer
+        CheckConstraint(
+            "NOT is_final OR final_answer IS NOT NULL",
+            name="ck_faq_final_answer_required",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False)
-    parent_id = Column(Integer, ForeignKey("faq_nodes.id"), nullable=True)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
+    parent_id = Column(Integer, ForeignKey("faq_nodes.id", ondelete="SET NULL"), nullable=True)
     question = Column(Text, nullable=False)
     is_final = Column(Boolean, default=False, nullable=False)
     final_answer = Column(Text, nullable=True)
@@ -142,10 +155,13 @@ class Event(Base):
 
 class Registration(Base):
     __tablename__ = "registrations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "event_id", name="uq_registration_user_event"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
     registered_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="registrations")
