@@ -2,10 +2,13 @@
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+import logging
 
 from core.database import async_session_maker
 from core.models import KnowledgeBase, Department
 from web.templating import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -21,6 +24,7 @@ def require_admin(request: Request) -> dict:
 async def knowledge_base_page(request: Request, user=Depends(require_admin)):
     knowledge_base = []
     departments = []
+    db_error = False
     try:
         async with async_session_maker() as session:
             kb_result = await session.execute(
@@ -32,8 +36,9 @@ async def knowledge_base_page(request: Request, user=Depends(require_admin)):
             
             depts_result = await session.execute(select(Department))
             departments = depts_result.scalars().all()
-    except Exception:
-        pass
+    except Exception as e:
+        db_error = True
+        logger.error("Не удалось загрузить базу знаний: %s", e)
     
     return templates.TemplateResponse(
         "knowledge_base.html",
@@ -42,6 +47,7 @@ async def knowledge_base_page(request: Request, user=Depends(require_admin)):
             "user": user,
             "knowledge_base": knowledge_base,
             "departments": departments,
+            "db_error": db_error,
             "active": "knowledge",
             "success": request.session.pop("success", None),
             "error": request.session.pop("error", None),

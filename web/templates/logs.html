@@ -2,11 +2,22 @@
 {% block title %}Логи - Admin Panel{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header">
-        <h2>📝 Логи действий</h2>
-        <a href="/logs/export" class="btn btn-secondary btn-small">📥 Экспорт</a>
+<div class="page-header">
+    <div>
+        <div class="crumb">Аудит</div>
+        <h1>Логи действий</h1>
+        <div class="page-desc">Что происходило в боте и с чьей стороны</div>
     </div>
+    <div class="actions">
+        <a href="/logs/export" class="btn btn-secondary btn-small">Экспорт</a>
+    </div>
+</div>
+
+{% if db_error %}
+<div class="alert alert-error">База данных недоступна — логи не загружены. Проверьте, что PostgreSQL запущен (docker-compose up -d).</div>
+{% endif %}
+
+<div class="card">
     
     <div class="table-container">
         <table>

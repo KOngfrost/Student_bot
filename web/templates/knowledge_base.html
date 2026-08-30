@@ -2,11 +2,22 @@
 {% block title %}База знаний - Admin Panel{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header">
-        <h2>📚 База знаний</h2>
-        <button class="btn btn-success" onclick="openModal()">➕ Добавить запись</button>
+<div class="page-header">
+    <div>
+        <div class="crumb">Автоответы</div>
+        <h1>База знаний</h1>
+        <div class="page-desc">Ключевые слова и заготовленные ответы по отделам</div>
     </div>
+    <div class="actions">
+        <button class="btn btn-success" onclick="openModal()">Добавить запись</button>
+    </div>
+</div>
+
+{% if db_error %}
+<div class="alert alert-error">База данных недоступна — записи не загружены. Проверьте, что PostgreSQL запущен (docker-compose up -d).</div>
+{% endif %}
+
+<div class="card">
     
     {% if success %}
     <div class="alert alert-success">{{ success }}</div>
@@ -46,7 +57,7 @@
                         <a href="/knowledge/{{ kb.id }}/delete" 
                            class="btn btn-danger btn-small"
                            onclick="return confirm('Удалить эту запись?')">
-                            🗑
+                            Удалить
                         </a>
                     </td>
                 </tr>

@@ -2,10 +2,13 @@
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+import logging
 
 from core.database import async_session_maker
 from core.models import User, Admin, Department, UserRole
 from web.templating import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -23,6 +26,7 @@ async def admins_page(request: Request, user=Depends(require_admin)):
     """Страница управления администраторами."""
     admins = []
     departments = []
+    db_error = False
     try:
         async with async_session_maker() as session:
             admins_result = await session.execute(
@@ -34,8 +38,9 @@ async def admins_page(request: Request, user=Depends(require_admin)):
             
             depts_result = await session.execute(select(Department))
             departments = depts_result.scalars().all()
-    except Exception:
-        pass
+    except Exception as e:
+        db_error = True
+        logger.error("Не удалось загрузить администраторов: %s", e)
     
     return templates.TemplateResponse(
         "admins.html",
@@ -44,6 +49,7 @@ async def admins_page(request: Request, user=Depends(require_admin)):
             "user": user,
             "admins": admins,
             "departments": departments,
+            "db_error": db_error,
             "active": "admins",
             "success": request.session.pop("success", None),
             "error": request.session.pop("error", None),

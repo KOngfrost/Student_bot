@@ -2,10 +2,13 @@
 from starlette.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
+import logging
 
 from core.database import async_session_maker
 from core.models import Ticket, Department, TicketStatus
 from web.templating import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -21,6 +24,7 @@ def require_admin(request: Request) -> dict:
 @router.get("/")
 async def dashboard(request: Request, user=Depends(require_admin)):
     """Главная страница дашборда."""
+    db_error = False
     try:
         async with async_session_maker() as session:
             # Статистика
@@ -46,12 +50,15 @@ async def dashboard(request: Request, user=Depends(require_admin)):
             )
             recent_tickets = recent_result.scalars().all()
     except Exception as e:
-        # Если БД недоступна, показываем пустые данные
+        # БД недоступна — честно сообщаем об этом на странице,
+        # а не показываем пустые значения как «реальные»
+        logger.error("Не удалось загрузить статистику: %s", e)
         recent_tickets = []
         total_tickets = 0
         in_progress = 0
         completed = 0
         new_tickets = 0
+        db_error = True
     
     stats = {
         "total_tickets": total_tickets,
@@ -67,6 +74,7 @@ async def dashboard(request: Request, user=Depends(require_admin)):
             "user": user,
             "stats": stats,
             "recent_tickets": recent_tickets,
+            "db_error": db_error,
             "active": "dashboard",
         }
     )

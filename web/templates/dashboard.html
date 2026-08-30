@@ -2,7 +2,21 @@
 {% block title %}Дашборд - Admin Panel{% endblock %}
 
 {% block content %}
-<h1 style="margin-bottom: 30px;">📊 Дашборд</h1>
+<div class="page-header">
+    <div>
+        <div class="crumb">Обзор</div>
+        <h1>Дашборд</h1>
+        <div class="page-desc">Сводка по обращениям студентов за всё время</div>
+    </div>
+    <div class="actions">
+        <a href="/tickets/" class="btn btn-secondary btn-small">Все заявки</a>
+        <a href="/admin/admins/" class="btn btn-primary btn-small">Управление админами</a>
+    </div>
+</div>
+
+{% if db_error %}
+<div class="alert alert-error">База данных недоступна — статистика и заявки не загружены. Проверьте, что PostgreSQL запущен (docker-compose up -d).</div>
+{% endif %}
 
 <div class="stats-grid">
     <div class="stat-card">
@@ -72,15 +86,12 @@
 
 <div class="card">
     <div class="card-header">
-        <h2>ℹ️ О системе</h2>
+        <h2>О системе</h2>
     </div>
-    <p style="color: var(--text-secondary); line-height: 1.8;">
+    <p style="color: var(--ink-soft); line-height: 1.8;">
         <strong>Student Bot</strong> — система управления обращениями студентов.<br>
         Версия: <strong>1.0.0</strong><br>
-        Подключение: <strong>Tailscale</strong> (только из сети Tailscale)<br>
-        <br>
-        <a href="/admin/admins/" class="btn btn-primary btn-small">Управление админами</a>
-        <a href="/tickets/" class="btn btn-secondary btn-small" style="margin-left: 10px;">Все заявки</a>
+        Подключение: <strong>Tailscale</strong> (только из сети Tailscale)
     </p>
 </div>
 {% endblock %}

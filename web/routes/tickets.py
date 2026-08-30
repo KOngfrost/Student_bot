@@ -2,10 +2,13 @@
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+import logging
 
 from core.database import async_session_maker
 from core.models import Ticket, Department
 from web.templating import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -23,6 +26,7 @@ async def tickets_page(request: Request, user=Depends(require_admin)):
     """Страница заявок."""
     tickets = []
     departments = []
+    db_error = False
     try:
         async with async_session_maker() as session:
             tickets_result = await session.execute(
@@ -34,8 +38,9 @@ async def tickets_page(request: Request, user=Depends(require_admin)):
             
             depts_result = await session.execute(select(Department))
             departments = depts_result.scalars().all()
-    except Exception:
-        pass
+    except Exception as e:
+        db_error = True
+        logger.error("Не удалось загрузить заявки: %s", e)
     
     return templates.TemplateResponse(
         "tickets.html",
@@ -44,6 +49,7 @@ async def tickets_page(request: Request, user=Depends(require_admin)):
             "user": user,
             "tickets": tickets,
             "departments": departments,
+            "db_error": db_error,
             "active": "tickets",
         }
     )

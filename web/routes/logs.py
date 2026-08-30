@@ -3,10 +3,13 @@ from fastapi.responses import Response, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from datetime import datetime
+import logging
 
 from core.database import async_session_maker
 from core.models import Log, User
 from web.templating import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -21,6 +24,7 @@ def require_admin(request: Request) -> dict:
 @router.get("/")
 async def logs_page(request: Request, user=Depends(require_admin)):
     logs = []
+    db_error = False
     try:
         async with async_session_maker() as session:
             logs_result = await session.execute(
@@ -30,8 +34,9 @@ async def logs_page(request: Request, user=Depends(require_admin)):
                 .limit(200)
             )
             logs = logs_result.scalars().all()
-    except Exception:
-        pass
+    except Exception as e:
+        db_error = True
+        logger.error("Не удалось загрузить логи: %s", e)
     
     return templates.TemplateResponse(
         "logs.html",
@@ -39,6 +44,7 @@ async def logs_page(request: Request, user=Depends(require_admin)):
             "request": request,
             "user": user,
             "logs": logs,
+            "db_error": db_error,
             "active": "logs",
         }
     )

@@ -2,10 +2,13 @@
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
+import logging
 
 from core.database import async_session_maker
 from core.models import FAQNode, Department
 from web.templating import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -21,6 +24,7 @@ def require_admin(request: Request) -> dict:
 async def faq_page(request: Request, user=Depends(require_admin)):
     faq_nodes = []
     departments = []
+    db_error = False
     try:
         async with async_session_maker() as session:
             faq_result = await session.execute(
@@ -32,8 +36,9 @@ async def faq_page(request: Request, user=Depends(require_admin)):
             
             depts_result = await session.execute(select(Department))
             departments = depts_result.scalars().all()
-    except Exception:
-        pass
+    except Exception as e:
+        db_error = True
+        logger.error("Не удалось загрузить FAQ: %s", e)
     
     return templates.TemplateResponse(
         "faq.html",
@@ -42,6 +47,7 @@ async def faq_page(request: Request, user=Depends(require_admin)):
             "user": user,
             "faq_nodes": faq_nodes,
             "departments": departments,
+            "db_error": db_error,
             "active": "faq",
             "success": request.session.pop("success", None),
             "error": request.session.pop("error", None),

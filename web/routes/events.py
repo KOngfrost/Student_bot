@@ -3,10 +3,13 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timezone
+import logging
 
 from core.database import async_session_maker
 from core.models import Event, Department
 from web.templating import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -22,6 +25,7 @@ def require_admin(request: Request) -> dict:
 async def events_page(request: Request, user=Depends(require_admin)):
     events = []
     departments = []
+    db_error = False
     try:
         async with async_session_maker() as session:
             events_result = await session.execute(
@@ -33,8 +37,9 @@ async def events_page(request: Request, user=Depends(require_admin)):
             
             depts_result = await session.execute(select(Department))
             departments = depts_result.scalars().all()
-    except Exception:
-        pass
+    except Exception as e:
+        db_error = True
+        logger.error("Не удалось загрузить события: %s", e)
     
     return templates.TemplateResponse(
         "events.html",
@@ -43,6 +48,7 @@ async def events_page(request: Request, user=Depends(require_admin)):
             "user": user,
             "events": events,
             "departments": departments,
+            "db_error": db_error,
             "active": "events",
             "success": request.session.pop("success", None),
             "error": request.session.pop("error", None),

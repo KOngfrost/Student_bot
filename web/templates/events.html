@@ -2,11 +2,22 @@
 {% block title %}События - Admin Panel{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header">
-        <h2>🎉 События</h2>
-        <button class="btn btn-success" onclick="openModal()">➕ Создать событие</button>
+<div class="page-header">
+    <div>
+        <div class="crumb">Афиша</div>
+        <h1>События</h1>
+        <div class="page-desc">Мероприятия и регистрации на них</div>
     </div>
+    <div class="actions">
+        <button class="btn btn-success" onclick="openModal()">Создать событие</button>
+    </div>
+</div>
+
+{% if db_error %}
+<div class="alert alert-error">База данных недоступна — события не загружены. Проверьте, что PostgreSQL запущен (docker-compose up -d).</div>
+{% endif %}
+
+<div class="card">
     
     {% if success %}
     <div class="alert alert-success">{{ success }}</div>
@@ -48,7 +59,7 @@
                         <a href="/events/{{ event.id }}/delete" 
                            class="btn btn-danger btn-small"
                            onclick="return confirm('Удалить это событие?')">
-                            🗑
+                            Удалить
                         </a>
                     </td>
                 </tr>

@@ -35,6 +35,11 @@ class Settings:
 
     REPORT_TIME = os.getenv("REPORT_TIME", "09:00")
 
+    # Веб-админка: учётные данные входа (без дефолтов —
+    # вход невозможен, пока они не заданы в .env)
+    WEB_ADMIN_USERNAME = os.getenv("WEB_ADMIN_USERNAME", "")
+    WEB_ADMIN_PASSWORD = os.getenv("WEB_ADMIN_PASSWORD", "")
+
     # SMTP (email-рассылка отчётов)
     SMTP_HOST = os.getenv("SMTP_HOST", "")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))

@@ -4,8 +4,13 @@
 {% block content %}
 <div class="login-container">
     <div class="login-card">
-        <h1>🎓 Student Bot</h1>
-        <p class="subtitle">Вход в административную панель</p>
+        <div class="login-brand">
+            <div class="monogram">SB</div>
+            <div>
+                <h1>Student Bot</h1>
+                <div class="subtitle">Вход в административную панель</div>
+            </div>
+        </div>
         
         {% if error %}
         <div class="alert alert-error">{{ error }}</div>
@@ -20,7 +25,7 @@
                 <label for="password">Пароль</label>
                 <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Введите пароль">
             </div>
-            <button type="submit" class="btn btn-primary">Войти →</button>
+            <button type="submit" class="btn btn-primary" style="width: 100%;">Войти</button>
         </form>
     </div>
 </div>

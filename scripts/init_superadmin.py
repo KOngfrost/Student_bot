@@ -65,10 +65,9 @@ async def init_superadmin(vk_id: int, full_name: str = ""):
         print(f"\n🎉 Суперадмин успешно создан!")
         print(f"   Имя: {full_name or 'Не указано'}")
         print(f"   VK ID: {vk_id}")
-        print(f"\n📝 Для входа в веб-админку:")
-        print(f"   Логин: admin")
-        print(f"   Пароль: admin123")
-        print(f"\n⚠️  Не забудьте изменить пароль в web/routes/auth.py!")
+        print(f"\n📝 Для входа в веб-админку задайте в .env:")
+        print(f"   WEB_ADMIN_USERNAME=<ваш логин>")
+        print(f"   WEB_ADMIN_PASSWORD=<ваш пароль>")
 
 
 def main():

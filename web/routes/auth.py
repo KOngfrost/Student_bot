@@ -2,15 +2,19 @@
 from fastapi.responses import HTMLResponse, RedirectResponse
 import secrets
 
+from core.config import settings
 from web.templating import templates
 
 router = APIRouter()
 
-# Хранилище админов (в продакшене использовать хэши и БД!)
-# Для генерации хэша: pwd_context.hash("your_password")
-ADMINS = {
-    "admin": "admin123",  # Логин:пароль (измените в продакшене!)
-}
+# Учётные данные веб-админки берутся из .env (WEB_ADMIN_USERNAME /
+# WEB_ADMIN_PASSWORD). Никаких дефолтов в коде: пока переменные не заданы,
+# вход закрыт с честным сообщением об ошибке.
+CREDENTIALS_NOT_SET = "Вход не настроен: задайте WEB_ADMIN_USERNAME и WEB_ADMIN_PASSWORD в .env и перезапустите панель"
+
+
+def _credentials_configured() -> bool:
+    return bool(settings.WEB_ADMIN_USERNAME and settings.WEB_ADMIN_PASSWORD)
 
 
 async def get_current_user(request: Request) -> dict | None:
@@ -35,25 +39,37 @@ async def login_page(request: Request):
     """Страница входа."""
     return templates.TemplateResponse(
         "login.html",
-        {"request": request, "error": None}
+        {
+            "request": request,
+            "error": None if _credentials_configured() else CREDENTIALS_NOT_SET,
+        }
     )
 
 
 @router.post("/login")
 async def login(request: Request):
     """Обработка входа. Логин и пароль приходят из HTML-формы."""
+    if not _credentials_configured():
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": CREDENTIALS_NOT_SET},
+            status_code=503,
+        )
+
     form = await request.form()
     username = str(form.get("username", ""))
     password = str(form.get("password", ""))
 
-    expected_password = ADMINS.get(username)
     # compare_digest защищает от timing-атак.
     # Сравниваем байты: secrets.compare_digest не поддерживает
     # не-ASCII строки (например, кириллические пароли).
-    password_ok = expected_password is not None and secrets.compare_digest(
-        password.encode("utf-8"), expected_password.encode("utf-8")
+    username_ok = secrets.compare_digest(
+        username.encode("utf-8"), settings.WEB_ADMIN_USERNAME.encode("utf-8")
     )
-    if password_ok:
+    password_ok = secrets.compare_digest(
+        password.encode("utf-8"), settings.WEB_ADMIN_PASSWORD.encode("utf-8")
+    )
+    if username_ok and password_ok:
         user_data = {
             "username": username,
             "role": "superadmin",

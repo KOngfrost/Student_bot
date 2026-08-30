@@ -2,11 +2,22 @@
 {% block title %}Администраторы - Admin Panel{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header">
-        <h2>👥 Администраторы</h2>
-        <button class="btn btn-success" onclick="openModal()">➕ Добавить админа</button>
+<div class="page-header">
+    <div>
+        <div class="crumb">Доступ</div>
+        <h1>Администраторы</h1>
+        <div class="page-desc">Кто управляет ботом и какими отделами</div>
     </div>
+    <div class="actions">
+        <button class="btn btn-success" onclick="openModal()">Добавить админа</button>
+    </div>
+</div>
+
+{% if db_error %}
+<div class="alert alert-error">База данных недоступна — список администраторов не загружен. Проверьте, что PostgreSQL запущен (docker-compose up -d).</div>
+{% endif %}
+
+<div class="card">
     
     {% if success %}
     <div class="alert alert-success">{{ success }}</div>
@@ -15,53 +26,46 @@
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
     
-    <div class="table-container">
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Пользователь</th>
-                    <th>VK ID</th>
-                    <th>Отдел</th>
-                    <th>Роль</th>
-                    <th>Действия</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for admin in admins %}
-                <tr>
-                    <td>{{ admin.id }}</td>
-                    <td>{{ admin.user.full_name or '—' }}</td>
-                    <td>{{ admin.user.vk_id }}</td>
-                    <td>{{ admin.department.name if admin.department else '—' }}</td>
-                    <td>
-                        {% if admin.role.value == 'superadmin' %}
-                        <span class="badge badge-completed">👑 Суперадмин</span>
-                        {% else %}
-                        <span class="badge badge-new">👤 Админ</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if admin.role.value != 'superadmin' %}
-                        <a href="/admin/admins/{{ admin.id }}/delete" 
-                           class="btn btn-danger btn-small"
-                           onclick="return confirm('Удалить этого админа?')">
-                            🗑 Удалить
-                        </a>
-                        {% else %}
-                        <span class="muted" style="font-size: 12px;">Нельзя удалить</span>
-                        {% endif %}
-                    </td>
-                </tr>
+    <div class="admins-grid">
+        {% for admin in admins %}
+        <div class="admin-card">
+            <div class="admin-card-top">
+                <div class="admin-avatar">
+                    {% set name = admin.user.full_name or 'VK' %}
+                    {% set parts = name.split(' ') %}
+                    {{ (parts[0][:1] ~ (parts[1][:1] if parts|length > 1 else '')) | upper }}
+                </div>
+                <div class="admin-card-top-info">
+                    <div class="admin-name">{{ admin.user.full_name or 'Без имени' }}</div>
+                    <div class="admin-vk">VK ID: {{ admin.user.vk_id }}</div>
+                </div>
+            </div>
+            <div class="admin-card-meta">
+                {% if admin.role.value == 'superadmin' %}
+                <span class="badge badge-completed">Суперадмин</span>
                 {% else %}
-                <tr>
-                    <td colspan="6" class="empty-state">
-                        Администраторов пока нет
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                <span class="badge badge-new">Админ</span>
+                {% endif %}
+                <span class="admin-dept">{{ admin.department.name if admin.department else 'Без отдела' }}</span>
+            </div>
+            <div class="admin-card-footer">
+                <span class="admin-id">#{{ admin.id }}</span>
+                {% if admin.role.value != 'superadmin' %}
+                <a href="/admin/admins/{{ admin.id }}/delete" 
+                   class="btn btn-danger btn-small"
+                   onclick="return confirm('Удалить этого админа?')">
+                    Удалить
+                </a>
+                {% else %}
+                <span class="muted" style="font-size: 12px;">Нельзя удалить</span>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <div class="empty-state" style="grid-column: 1 / -1;">
+            Администраторов пока нет
+        </div>
+        {% endfor %}
     </div>
 </div>
 
@@ -118,6 +122,11 @@ function closeModal() {
 // Закрытие по клику вне модалки
 document.getElementById('modal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
+});
+
+// Закрытие модалки по Escape
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeModal();
 });
 </script>
 {% endblock %}

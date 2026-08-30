@@ -2,14 +2,22 @@
 {% block title %}Заявки - Admin Panel{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header">
-        <h2>📋 Заявки</h2>
+<div class="page-header">
+    <div>
+        <div class="crumb">Обработка</div>
+        <h1>Заявки</h1>
+        <div class="page-desc">Поиск, фильтрация и просмотр обращений студентов</div>
     </div>
-    
+</div>
+
+{% if db_error %}
+<div class="alert alert-error">База данных недоступна — список заявок не загружен. Проверьте, что PostgreSQL запущен (docker-compose up -d).</div>
+{% endif %}
+
+<div class="card">
     <!-- Фильтры -->
     <div class="filter-bar">
-        <input type="text" id="search" placeholder="🔍 Поиск по теме/описанию..." 
+        <input type="text" id="search" placeholder="Поиск по теме или описанию..." 
                onkeyup="filterTable()">
         <select id="status-filter" onchange="filterTable()">
             <option value="">Все статусы</option>
@@ -33,7 +41,6 @@
         <table id="tickets-table">
             <thead>
                 <tr>
-                    <th>ID</th>
                     <th>Тема</th>
                     <th>Пользователь</th>
                     <th>Отдел</th>
@@ -46,17 +53,16 @@
             <tbody>
                 {% for ticket in tickets %}
                 <tr data-status="{{ ticket.status.value }}" data-dept="{{ ticket.department.id if ticket.department else '' }}">
-                    <td>{{ ticket.id }}</td>
-                    <td>{{ ticket.topic or '—' }}</td>
-                    <td>
+                    <td class="td-topic" data-label="Тема">{{ ticket.topic or '—' }}</td>
+                    <td data-label="Пользователь">
                         {% if ticket.is_anonymous or not ticket.user %}
                         <span class="muted">Аноним</span>
                         {% else %}
                             {{ ticket.user.full_name or '—' }}
                         {% endif %}
                     </td>
-                    <td>{{ ticket.department.name if ticket.department else '—' }}</td>
-                    <td>
+                    <td data-label="Отдел">{{ ticket.department.name if ticket.department else '—' }}</td>
+                    <td data-label="Статус">
                         {% if ticket.status.value == 'Новое' %}
                         <span class="badge badge-new">{{ ticket.status.value }}</span>
                         {% elif ticket.status.value == 'В обработке' %}
@@ -67,23 +73,23 @@
                         <span class="badge badge-anonymous">{{ ticket.status.value }}</span>
                         {% endif %}
                     </td>
-                    <td>
+                    <td data-label="Аноним">
                         {% if ticket.is_anonymous %}
                         ⚠️
                         {% else %}
                         —
                         {% endif %}
                     </td>
-                    <td>{{ ticket.created_at.strftime('%d.%m.%Y') if ticket.created_at else '—' }}</td>
-                    <td>
+                    <td data-label="Дата">{{ ticket.created_at.strftime('%d.%m.%Y') if ticket.created_at else '—' }}</td>
+                    <td class="td-actions" data-label="Действия">
                         <button class="btn btn-secondary btn-small" onclick="openTicket({{ ticket.id }})">
-                            👁 Открыть
+                            Открыть
                         </button>
                     </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8" class="empty-state">
+                    <td colspan="7" class="empty-state">
                         Заявок пока нет
                     </td>
                 </tr>
@@ -137,34 +143,30 @@ function openTicket(id) {
         .then(ticket => {
             document.getElementById('modal-title').textContent = `Заявка #${ticket.id}`;
             document.getElementById('modal-body').innerHTML = `
-                <div style="margin-bottom: 15px;">
+                <div class="detail-block">
                     <strong>Тема:</strong> ${ticket.topic || '—'}
                 </div>
-                <div style="margin-bottom: 15px;">
-                    <strong>Описание:</strong><br>
-                    <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-top: 5px;">
-                        ${ticket.description || '—'}
-                    </div>
+                <div class="detail-block">
+                    <strong>Описание:</strong>
+                    <div class="detail-box">${ticket.description || '—'}</div>
                 </div>
-                <div style="margin-bottom: 15px;">
+                <div class="detail-block">
                     <strong>Пользователь:</strong> 
                     ${ticket.user ? (ticket.user.full_name || 'Аноним') : 'Аноним'}
                 </div>
-                <div style="margin-bottom: 15px;">
+                <div class="detail-block">
                     <strong>Отдел:</strong> ${ticket.department ? ticket.department.name : '—'}
                 </div>
-                <div style="margin-bottom: 15px;">
+                <div class="detail-block">
                     <strong>Статус:</strong> ${ticket.status.value}
                 </div>
-                <div style="margin-bottom: 15px;">
+                <div class="detail-block">
                     <strong>Дата:</strong> ${ticket.created_at ? new Date(ticket.created_at).toLocaleString('ru-RU') : '—'}
                 </div>
                 ${ticket.response_text ? `
-                <div style="margin-bottom: 15px;">
-                    <strong>Ответ:</strong><br>
-                    <div style="background: #d1fae5; padding: 15px; border-radius: 8px; margin-top: 5px;">
-                        ${ticket.response_text}
-                    </div>
+                <div class="detail-block">
+                    <strong>Ответ:</strong>
+                    <div class="detail-box detail-box-response">${ticket.response_text}</div>
                 </div>
                 ` : ''}
             `;
@@ -178,6 +180,11 @@ function closeTicketModal() {
 
 document.getElementById('ticket-modal').addEventListener('click', function(e) {
     if (e.target === this) closeTicketModal();
+});
+
+// Закрытие модалки по Escape
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeTicketModal();
 });
 </script>
 {% endblock %}
