@@ -10,7 +10,6 @@
 """
 
 import os
-import secrets
 import logging
 
 from fastapi import FastAPI, Request
@@ -43,15 +42,13 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CSRFMiddleware)
 
 # 3. Session middleware с безопасными настройками
-# Секрет должен быть стабильным между перезапусками, иначе все сессии
-# инвалидируются при каждом деплое.
+# Секрет ОБЯЗАТЕЛЕН: без него запуск запрещён (иначе сессии сбрасываются
+# при каждом перезапуске, что небезопасно и неудобно).
 _session_secret = os.getenv("SESSION_SECRET_KEY")
 if not _session_secret:
-    _session_secret = secrets.token_urlsafe(64)
-    logger.warning(
-        "SESSION_SECRET_KEY не задан: используется временный секрет, "
-        "сессии будут сбрасываться при перезапуске. "
-        "Установите SESSION_SECRET_KEY в .env (генерация: python -c \"import secrets; print(secrets.token_urlsafe(64))\")"
+    raise RuntimeError(
+        "SESSION_SECRET_KEY не задан. Установите его в .env и перезапустите панель. "
+        "Генерация: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
     )
 
 app.add_middleware(
@@ -121,3 +118,22 @@ app.include_router(faq.router, prefix="/faq", tags=["faq"])
 app.include_router(events.router, prefix="/events", tags=["events"])
 app.include_router(logs.router, prefix="/logs", tags=["logs"])
 app.include_router(dashboard.router, tags=["dashboard"])
+
+
+# Healthcheck для мониторинга и docker healthcheck
+@app.get("/health")
+async def health():
+    """Проверка живости панели и доступности БД."""
+    from sqlalchemy import text
+    from core.database import engine
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+        return {"status": "ok"}
+    except Exception:
+        logger.exception("Healthcheck: БД недоступна")
+        return JSONResponse(
+            content={"status": "error", "detail": "database unavailable"},
+            status_code=503,
+        )

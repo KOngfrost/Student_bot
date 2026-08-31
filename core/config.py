@@ -35,6 +35,18 @@ class Settings:
 
     REPORT_TIME = os.getenv("REPORT_TIME", "09:00")
 
+    # Часовой пояс для отчётов и отображения времени пользователям.
+    # Даты в БД хранятся в UTC, отчётные границы считаются в этом поясе.
+    APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Europe/Moscow")
+
+    # Dev-режим: разрешить приложению самому создавать базу
+    # (CREATE DATABASE). В production должно быть false — базу создаёт
+    # PostgreSQL-контейнер через POSTGRES_DB, схема применяется через Alembic.
+    ALLOW_DB_CREATE = os.getenv("ALLOW_DB_CREATE", "false").lower() in ("1", "true", "yes")
+
+    # Секрет сессий веб-панели (обязателен: без него панель не запускается)
+    SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "")
+
     # Веб-админка: учётные данные входа (без дефолтов —
     # вход невозможен, пока они не заданы в .env)
     WEB_ADMIN_USERNAME = os.getenv("WEB_ADMIN_USERNAME", "")

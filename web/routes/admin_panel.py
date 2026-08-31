@@ -188,14 +188,13 @@ async def add_admin(request: Request, user=Depends(require_admin)):
     return RedirectResponse(url="/admin/admins/", status_code=302)
 
 
-@router.get("/{admin_id}/delete")
+@router.post("/{admin_id}/delete")
 async def delete_admin(request: Request, admin_id: int, user=Depends(require_admin)):
-    """Удаление администратора.
+    """Удаление администратора (POST с CSRF-токеном и подтверждением).
 
     Безопасность:
     - Только суперадмин может удалять обычных админов
-    - Обычный админ не может удалять никого (кроме, возможно, своих подчинённых в будущем)
-    - Нельзя удалить самого себя
+    - Нельзя удалить самого себя и суперадмина
     """
     current_admin_user_id = user.get("user_id")
 

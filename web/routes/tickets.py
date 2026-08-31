@@ -1,68 +1,66 @@
-﻿"""
-Маршруты заявок.
+"""
+Маршруты заявок веб-панели.
 
 Безопасность:
 - CSRF защищён middleware CSRFMiddleware в main.py
-- IDOR: админ видит только заявки своего отдела (суперадмин — все)
-- API-эндпоинты также проверяют права доступа
+- IDOR: админ отдела видит и изменяет только заявки своего отдела
+  (суперадмин и VIEWER — все, VIEWER только на чтение)
+- Изменения статусов валидируются по схеме переходов (ticket_service)
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 import logging
 
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
 from core.database import async_session_maker
-from core.models import Ticket, Department, Admin, UserRole
-from web.templating import templates
+from core.models import Department, Ticket, TicketStatus
+from core.ticket_service import (
+    StatusTransitionError,
+    assign_ticket_department,
+    change_ticket_status,
+    reply_to_ticket,
+)
+from web.dependencies import get_admin_scope, require_auth, require_superadmin, require_writer
 from web.security.csrf import get_csrf_token
+from web.templating import templates
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-
-def require_admin(request: Request) -> dict:
-    """Депенденция для проверки прав админа."""
-    user = request.session.get("user")
-    if not user:
-        raise HTTPException(status_code=302, detail="Redirect", headers={"Location": "/auth/login"})
-    return user
-
-
-def _get_admin_dept_filter(session, user: dict):
-    """
-    Получить фильтр отдела для текущего админа.
-    Возвращает (is_super, dept_id).
-    """
-    admin_user_id = user.get("user_id")
-    if not admin_user_id:
-        return False, None
-    current_admin = session.get(Admin, admin_user_id)
-    is_super = current_admin and current_admin.role == UserRole.SUPERADMIN
-    dept_id = current_admin.department_id if current_admin else None
-    return is_super, dept_id
+# Человекочитаемые названия статусов для формы смены статуса
+STATUS_CHOICES = [
+    (TicketStatus.IN_PROGRESS.value, "В обработке"),
+    (TicketStatus.TRANSFERRED_ADMIN.value, "Передать в администрацию СГ"),
+    (TicketStatus.TRANSFERRED_HOUSEKEEPING.value, "Передать в Хозчасть"),
+    (TicketStatus.COMPLETED.value, "Выполнено"),
+]
 
 
 @router.get("/")
-async def tickets_page(request: Request, user=Depends(require_admin)):
-    """Страница заявок с IDOR-защитой."""
+async def tickets_page(request: Request, user: dict = Depends(require_auth)):
+    """Страница заявок с IDOR-защитой: админ отдела видит только свой отдел."""
     tickets = []
     departments = []
     db_error = False
 
     try:
         async with async_session_maker() as session:
-            tickets_result = await session.execute(
+            is_super, dept_id = await get_admin_scope(session, user)
+
+            stmt = (
                 select(Ticket)
                 .options(selectinload(Ticket.user), selectinload(Ticket.department))
                 .order_by(Ticket.created_at.desc())
             )
-            tickets = tickets_result.scalars().all()
+            if not is_super:
+                stmt = stmt.where(Ticket.department_id == dept_id)
+            tickets = (await session.scalars(stmt)).all()
 
-            depts_result = await session.execute(select(Department))
-            departments = depts_result.scalars().all()
+            departments = (await session.scalars(select(Department))).all()
     except Exception as e:
         db_error = True
         logger.error("Не удалось загрузить заявки: %s", e)
@@ -74,49 +72,155 @@ async def tickets_page(request: Request, user=Depends(require_admin)):
             "user": user,
             "tickets": tickets,
             "departments": departments,
+            "status_choices": STATUS_CHOICES,
             "db_error": db_error,
             "active": "tickets",
+            "success": request.session.pop("success", None),
+            "error": request.session.pop("error", None),
             "csrf_token": get_csrf_token(request),
-        }
+        },
     )
 
 
+async def _load_ticket_for_user(ticket_id: int, user: dict) -> Ticket:
+    """Загрузить заявку с проверкой IDOR-прав (404/403)."""
+    async with async_session_maker() as session:
+        is_super, dept_id = await get_admin_scope(session, user)
+
+    ticket = await _get_ticket(ticket_id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+    if not is_super and ticket.department_id != dept_id:
+        raise HTTPException(status_code=403, detail="Нет прав для работы с этой заявкой")
+    return ticket
+
+
+async def _get_ticket(ticket_id: int) -> Ticket | None:
+    async with async_session_maker() as session:
+        return await session.scalar(
+            select(Ticket)
+            .options(selectinload(Ticket.user), selectinload(Ticket.department))
+            .where(Ticket.id == ticket_id)
+        )
+
+
 @router.get("/{ticket_id}")
-async def get_ticket(ticket_id: int, user=Depends(require_admin)):
-    """Получение данных заявки для модального окна (JSON) с проверкой прав."""
+async def get_ticket(ticket_id: int, user: dict = Depends(require_auth)):
+    """Данные заявки для модального окна (JSON) с проверкой прав + история."""
+    ticket = await _load_ticket_for_user(ticket_id, user)
+
+    from core.ticket_service import get_ticket_messages
+
     try:
-        async with async_session_maker() as session:
-            ticket = await session.scalar(
-                select(Ticket)
-                .options(selectinload(Ticket.user), selectinload(Ticket.department))
-                .where(Ticket.id == ticket_id)
-            )
-            if not ticket:
-                raise HTTPException(status_code=404, detail="Заявка не найдена")
-
-            # IDOR-проверка: админ видит только заявки своего отдела
-            is_super, dept_id = _get_admin_dept_filter(session, user)
-            if not is_super and ticket.department_id != dept_id:
-                raise HTTPException(status_code=403, detail="Нет прав для просмотра этой заявки")
-
-            return {
-                "id": ticket.id,
-                "topic": ticket.topic,
-                "description": ticket.description,
-                "status": {"value": ticket.status.value},
-                "is_anonymous": ticket.is_anonymous,
-                "auto_closed": ticket.auto_closed,
-                "response_text": ticket.response_text,
-                "created_at": ticket.created_at.isoformat() if ticket.created_at else None,
-                "user": {
-                    "full_name": ticket.user.full_name if ticket.user else None,
-                    "dormitory": ticket.user.dormitory if ticket.user else None,
-                } if ticket.user else None,
-                "department": {
-                    "name": ticket.department.name if ticket.department else None,
-                } if ticket.department else None,
-            }
-    except HTTPException:
-        raise
+        messages = await get_ticket_messages(ticket_id)
     except Exception:
-        raise HTTPException(status_code=500, detail="Ошибка при загрузке данных")
+        messages = []
+
+    return {
+        "id": ticket.id,
+        "topic": ticket.topic,
+        "description": ticket.description,
+        "status": {"value": ticket.status.value},
+        "is_anonymous": ticket.is_anonymous,
+        "auto_closed": ticket.auto_closed,
+        "response_text": ticket.response_text,
+        "created_at": ticket.created_at.isoformat() if ticket.created_at else None,
+        "user": {
+            "full_name": ticket.user.full_name if ticket.user else None,
+            "dormitory": ticket.user.dormitory if ticket.user else None,
+        } if ticket.user else None,
+        "department": {
+            "name": ticket.department.name if ticket.department else None,
+        } if ticket.department else None,
+        "messages": [
+            {
+                "author_type": m.author_type.value if m.author_type else None,
+                "message": m.message,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in messages
+        ],
+    }
+
+
+@router.post("/{ticket_id}/reply")
+async def reply_ticket(ticket_id: int, request: Request, user: dict = Depends(require_writer)):
+    """Ответ администратора студенту.
+
+    Форма: message (обязательно), complete=on (завершить заявку).
+    Сохраняет сообщение, обновляет response_text, статус, шлёт VK-уведомление.
+    """
+    form = await request.form()
+    message = str(form.get("message", "")).strip()
+    complete = form.get("complete") == "on"
+
+    if not message:
+        raise HTTPException(status_code=400, detail="Текст ответа не может быть пустым")
+
+    await _load_ticket_for_user(ticket_id, user)
+
+    ticket, vk_sent = await reply_to_ticket(
+        ticket_id=ticket_id,
+        admin_username=user.get("username", "unknown"),
+        message=message,
+        complete=complete,
+    )
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+
+    note = "" if vk_sent else " (VK-уведомление не доставлено)"
+    request.session["success"] = f"Ответ на заявку #{ticket_id} отправлен{note}"
+    return RedirectResponse(url="/tickets/", status_code=303)
+
+
+@router.post("/{ticket_id}/status")
+async def set_ticket_status(ticket_id: int, request: Request, user: dict = Depends(require_writer)):
+    """Смена статуса заявки с валидацией переходов."""
+    form = await request.form()
+    new_status_raw = str(form.get("status", ""))
+
+    try:
+        new_status = TicketStatus(new_status_raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неизвестный статус")
+
+    await _load_ticket_for_user(ticket_id, user)
+
+    try:
+        ticket = await change_ticket_status(
+            ticket_id=ticket_id,
+            new_status=new_status,
+            admin_username=user.get("username", "unknown"),
+        )
+    except StatusTransitionError as error:
+        request.session["error"] = str(error)
+        return RedirectResponse(url="/tickets/", status_code=303)
+
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+
+    request.session["success"] = f"Статус заявки #{ticket_id}: {new_status.value}"
+    return RedirectResponse(url="/tickets/", status_code=303)
+
+
+@router.post("/{ticket_id}/assign")
+async def assign_ticket(ticket_id: int, request: Request, user: dict = Depends(require_superadmin)):
+    """Передача заявки другому отделу (только суперадмин)."""
+    form = await request.form()
+    try:
+        department_id = int(form.get("department_id", 0))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Некорректный отдел")
+
+    await _load_ticket_for_user(ticket_id, user)
+
+    ticket = await assign_ticket_department(
+        ticket_id=ticket_id,
+        department_id=department_id,
+        admin_username=user.get("username", "unknown"),
+    )
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Заявка или отдел не найдены")
+
+    request.session["success"] = f"Заявка #{ticket_id} передана в отдел"
+    return RedirectResponse(url="/tickets/", status_code=303)

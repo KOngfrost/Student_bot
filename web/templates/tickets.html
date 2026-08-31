@@ -13,6 +13,12 @@
 {% if db_error %}
 <div class="alert alert-error">База данных недоступна — список заявок не загружен. Проверьте, что PostgreSQL запущен (docker-compose up -d).</div>
 {% endif %}
+{% if success %}
+<div class="alert alert-success">{{ success }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
 
 <div class="card">
     <!-- Фильтры -->
@@ -115,6 +121,10 @@
 
 {% block extra_js %}
 <script>
+window.CSRF_FORM_TOKEN = '{{ csrf_token }}';
+window.CURRENT_ROLE = '{{ user.role if user else "" }}';
+window.STATUS_CHOICES = {{ status_choices | tojson }};
+
 function filterTable() {
     const search = document.getElementById('search').value.toLowerCase();
     const statusFilter = document.getElementById('status-filter').value;
@@ -149,12 +159,60 @@ function openTicket(id) {
             body += '<div class="detail-block"><strong>Отдел:</strong> ' + (ticket.department ? ticket.department.name : '—') + '</div>';
             body += '<div class="detail-block"><strong>Статус:</strong> ' + escapeHtml(ticket.status.value) + '</div>';
             body += '<div class="detail-block"><strong>Дата:</strong> ' + (ticket.created_at ? new Date(ticket.created_at).toLocaleString('ru-RU') : '—') + '</div>';
-            if (ticket.response_text) {
+
+            // История переписки
+            if (ticket.messages && ticket.messages.length > 0) {
+                body += '<div class="detail-block"><strong>История:</strong><div class="detail-box">';
+                ticket.messages.forEach(function (m) {
+                    var author = {user: 'Студент', admin: 'Администратор', system: 'Система'}[m.author_type] || '—';
+                    body += '<div><em>' + author + ':</em> ' + escapeHtml(m.message) + '</div>';
+                });
+                body += '</div></div>';
+            } else if (ticket.response_text) {
                 body += '<div class="detail-block"><strong>Ответ:</strong><div class="detail-box detail-box-response">' + escapeHtml(ticket.response_text) + '</div></div>';
             }
+
+            // Форма ответа (VIEWER не может изменять)
+            if (window.CURRENT_ROLE !== 'VIEWER') {
+                body += '<form method="post" action="/tickets/' + ticket.id + '/reply" class="detail-form">';
+                body += '<input type="hidden" name="csrf_token" value="' + window.CSRF_FORM_TOKEN + '">';
+                body += '<label><strong>Ответ студенту:</strong></label>';
+                body += '<textarea name="message" rows="3" required style="width:100%;"></textarea>';
+                body += '<label style="display:block;margin:6px 0;"><input type="checkbox" name="complete"> Завершить заявку (уведомить и закрыть)</label>';
+                body += '<button type="submit" class="btn btn-primary btn-small">Отправить ответ</button>';
+                body += '</form>';
+
+                // Смена статуса
+                body += '<form method="post" action="/tickets/' + ticket.id + '/status" class="detail-form">';
+                body += '<input type="hidden" name="csrf_token" value="' + window.CSRF_FORM_TOKEN + '">';
+                body += '<label><strong>Статус:</strong> </label>';
+                body += '<select name="status">';
+                window.STATUS_CHOICES.forEach(function (s) {
+                    body += '<option value="' + s[0] + '">' + s[1] + '</option>';
+                });
+                body += '</select> ';
+                body += '<button type="submit" class="btn btn-secondary btn-small">Сменить статус</button>';
+                body += '</form>';
+            }
+
+            // Передача другому отделу (только суперадмин)
+            if (window.CURRENT_ROLE === 'SUPERADMIN') {
+                body += '<form method="post" action="/tickets/' + ticket.id + '/assign" class="detail-form">';
+                body += '<input type="hidden" name="csrf_token" value="' + window.CSRF_FORM_TOKEN + '">';
+                body += '<label><strong>Передать в отдел:</strong> </label>';
+                body += '<select name="department_id">';
+                document.querySelectorAll('#dept-filter option').forEach(function (opt) {
+                    if (opt.value) body += '<option value="' + opt.value + '">' + escapeHtml(opt.textContent) + '</option>';
+                });
+                body += '</select> ';
+                body += '<button type="submit" class="btn btn-secondary btn-small">Передать</button>';
+                body += '</form>';
+            }
+
             document.getElementById('modal-body').innerHTML = body;
             document.getElementById('ticket-modal').classList.add('active');
-        });
+        })
+        .catch(err => alert(err.message));
 }
 
 function escapeHtml(str) {

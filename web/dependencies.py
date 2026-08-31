@@ -1,0 +1,103 @@
+"""Общие зависимости авторизации и разграничения прав для веб-панели.
+
+Модель доступа:
+- SUPERADMIN: видит все отделы, может всё (включая передачу заявок).
+- DEPARTMENT_ADMIN: видит и изменяет заявки/контент только своего отдела.
+- VIEWER: видит всё, но не может изменять данные.
+"""
+
+from fastapi import HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.models import Admin, UserRole, WebRole
+
+
+def get_current_user(request: Request) -> dict | None:
+    """Данные пользователя из сессии или None."""
+    return request.session.get("user")
+
+
+def require_auth(request: Request) -> dict:
+    """Проверка авторизации (редирект на логин, если нет сессии)."""
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(
+            status_code=302, detail="Redirect", headers={"Location": "/auth/login"}
+        )
+    return user
+
+
+def _normalize_role(role: str | None) -> WebRole | None:
+    if not role:
+        return None
+    try:
+        return WebRole(role.upper())
+    except ValueError:
+        # Обратная совместимость со старыми значениями "superadmin"/"admin"
+        if role.lower() == "superadmin":
+            return WebRole.SUPERADMIN
+        if role.lower() == "admin":
+            return WebRole.DEPARTMENT_ADMIN
+        return None
+
+
+def role_of(user: dict) -> WebRole | None:
+    """Роль пользователя сессии."""
+    return _normalize_role(user.get("role"))
+
+
+def is_superadmin(user: dict) -> bool:
+    """Суперадмин видит и может всё."""
+    return role_of(user) == WebRole.SUPERADMIN
+
+
+def can_write(user: dict) -> bool:
+    """Может ли пользователь изменять данные (не VIEWER)."""
+    return role_of(user) in (WebRole.SUPERADMIN, WebRole.DEPARTMENT_ADMIN)
+
+
+def require_writer(request: Request) -> dict:
+    """Проверка авторизации + права на изменение (403 для VIEWER)."""
+    user = require_auth(request)
+    if not can_write(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Просмотр без права изменения: обратитесь к суперадминистратору",
+        )
+    return user
+
+
+def require_superadmin(request: Request) -> dict:
+    """Только для суперадминов."""
+    user = require_auth(request)
+    if not is_superadmin(user):
+        raise HTTPException(
+            status_code=403, detail="Действие доступно только суперадминистратору"
+        )
+    return user
+
+
+async def get_admin_scope(session: AsyncSession, user: dict) -> tuple[bool, int | None]:
+    """Определить область видимости пользователя.
+
+    Возвращает (is_super, dept_id):
+    - суперадмин/VIEWER: (True, None) — видят все отделы;
+    - админ отдела: (False, department_id) — видят только свой отдел.
+
+    Поддерживает и старую сессию с user_id (запись Admin из VK-админов).
+    """
+    role = role_of(user)
+    if role == WebRole.SUPERADMIN or role == WebRole.VIEWER:
+        return True, None
+    if role == WebRole.DEPARTMENT_ADMIN:
+        return False, user.get("department_id")
+
+    # Обратная совместимость: сессии, созданные до web_users
+    admin_user_id = user.get("user_id")
+    if admin_user_id:
+        admin = await session.get(Admin, admin_user_id)
+        if admin and admin.role == UserRole.SUPERADMIN:
+            return True, None
+        if admin:
+            return False, admin.department_id
+    return False, None

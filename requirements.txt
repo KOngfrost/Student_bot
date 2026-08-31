@@ -5,6 +5,8 @@ openpyxl==3.1.5
 SQLAlchemy>=2.0,<2.5
 asyncpg==0.31.0
 alembic==1.18.5
+# База часовых поясов для zoneinfo (Windows и slim-образы не имеют системной)
+tzdata==2024.2
 # Web admin panel
 fastapi==0.115.0
 uvicorn[standard]==0.30.0

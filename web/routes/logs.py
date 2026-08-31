@@ -8,14 +8,14 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import Response, RedirectResponse
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 import logging
 
 from core.database import async_session_maker
-from core.models import Log, User, Admin, UserRole
+from core.models import Log
 from web.templating import templates
 from web.security.middleware import escape_for_csv, sanitize_csv_field
 

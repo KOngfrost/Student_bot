@@ -56,11 +56,11 @@
                     <td>{{ event.event_date.strftime('%d.%m.%Y %H:%M') if event.event_date else '—' }}</td>
                     <td>{{ event.registrations|length }}</td>
                     <td>
-                        <a href="/events/{{ event.id }}/delete" 
-                           class="btn btn-danger btn-small"
-                           onclick="return confirm('Удалить это событие?')">
-                            Удалить
-                        </a>
+                        <form method="post" action="/events/{{ event.id }}/delete"
+                              onsubmit="return confirm('Удалить это событие?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="btn btn-danger btn-small">Удалить</button>
+                        </form>
                     </td>
                 </tr>
                 {% else %}

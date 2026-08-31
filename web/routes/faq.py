@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 import logging
 
 from core.database import async_session_maker
-from core.models import FAQNode, Department, Admin, UserRole
+from core.models import FAQNode, Department
 from web.templating import templates
 from web.security.middleware import sanitize_html
 
@@ -105,9 +105,9 @@ async def add_faq(request: Request, user=Depends(require_admin)):
     return RedirectResponse(url="/faq/", status_code=302)
 
 
-@router.get("/{node_id}/delete")
+@router.post("/{node_id}/delete")
 async def delete_faq(request: Request, node_id: int, user=Depends(require_admin)):
-    """Удаление элемента FAQ с проверкой прав."""
+    """Удаление элемента FAQ (POST с CSRF-токеном) с проверкой прав."""
     try:
         async with async_session_maker() as session:
             node = await session.get(FAQNode, node_id)

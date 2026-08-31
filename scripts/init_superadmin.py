@@ -10,6 +10,10 @@
 import argparse
 import asyncio
 import sys
+from pathlib import Path
+
+# Добавляем корень проекта в sys.path для импорта модулей
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -62,12 +66,12 @@ async def init_superadmin(vk_id: int, full_name: str = ""):
         session.add(admin)
         await session.commit()
         
-        print(f"\n🎉 Суперадмин успешно создан!")
+        print("\n🎉 Суперадмин успешно создан!")
         print(f"   Имя: {full_name or 'Не указано'}")
         print(f"   VK ID: {vk_id}")
-        print(f"\n📝 Для входа в веб-админку задайте в .env:")
-        print(f"   WEB_ADMIN_USERNAME=<ваш логин>")
-        print(f"   WEB_ADMIN_PASSWORD=<ваш пароль>")
+        print("\n📝 Для входа в веб-админку задайте в .env:")
+        print("   WEB_ADMIN_USERNAME=<ваш логин>")
+        print("   WEB_ADMIN_PASSWORD=<ваш пароль>")
 
 
 def main():

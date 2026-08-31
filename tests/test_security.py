@@ -11,10 +11,8 @@
 """
 
 import pytest
-import re
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
-from starlette.testclient import TestClient as StarletteTestClient
 
 import sys
 import os
@@ -22,17 +20,14 @@ import os
 # Добавляем корень проекта в sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from web.security.csrf import CSRFMiddleware, get_csrf_token, rotate_csrf_token, validate_csrf
+from web.security.csrf import get_csrf_token, rotate_csrf_token, validate_csrf
 from web.security.middleware import (
-    SecurityHeadersMiddleware,
     sanitize_csv_field,
     escape_for_csv,
     sanitize_html,
     RequestSizeValidator,
     hash_password,
     verify_password,
-    _CSV_INJECTION_PATTERNS,
-    _XSS_PATTERNS,
 )
 
 # Импортируем приложение

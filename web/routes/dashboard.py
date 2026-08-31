@@ -5,14 +5,14 @@
 - IDOR: админ видит только статистику своего отдела (суперадмин — все)
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from starlette.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 import logging
 
 from core.database import async_session_maker
-from core.models import Ticket, Department, TicketStatus, Admin, UserRole
+from core.models import Ticket, TicketStatus
+from web.dependencies import get_admin_scope, require_auth
 from web.templating import templates
 from web.security.csrf import get_csrf_token
 
@@ -21,28 +21,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def require_admin(request: Request) -> dict:
-    """Депенденция для проверки прав админа."""
-    user = request.session.get("user")
-    if not user:
-        raise HTTPException(status_code=302, detail="Redirect", headers={"Location": "/auth/login"})
-    return user
-
-
 @router.get("/")
-async def dashboard(request: Request, user=Depends(require_admin)):
+async def dashboard(request: Request, user: dict = Depends(require_auth)):
     """Главная страница дашборда с IDOR-защитой."""
     db_error = False
 
     try:
         async with async_session_maker() as session:
-            # Проверяем роль текущего админа
-            admin_user_id = user.get("user_id")
-            current_admin = await session.get(Admin, admin_user_id) if admin_user_id else None
-            is_super = current_admin and current_admin.role == UserRole.SUPERADMIN
-            dept_id = current_admin.department_id if current_admin else None
-
-            # Фильтруем запросы по отделу
+            # Область видимости: суперадмин/VIEWER — все отделы,
+            # админ отдела — только свой отдел
+            is_super, dept_id = await get_admin_scope(session, user)
             dept_filter = None if is_super else dept_id
 
             # Статистика

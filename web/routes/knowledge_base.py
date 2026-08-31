@@ -116,9 +116,9 @@ async def add_knowledge_base(request: Request, user=Depends(require_admin)):
     return RedirectResponse(url="/knowledge/", status_code=302)
 
 
-@router.get("/{kb_id}/delete")
+@router.post("/{kb_id}/delete")
 async def delete_knowledge_base(request: Request, kb_id: int, user=Depends(require_admin)):
-    """Удаление записи из базы знаний с проверкой прав."""
+    """Удаление записи из базы знаний (POST с CSRF-токеном) с проверкой прав."""
     try:
         async with async_session_maker() as session:
             kb = await session.get(KnowledgeBase, kb_id)

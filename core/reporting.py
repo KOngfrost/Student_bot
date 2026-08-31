@@ -2,11 +2,12 @@ import asyncio
 import logging
 import random
 import smtplib
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from io import BytesIO
+from zoneinfo import ZoneInfo
 
 from openpyxl import Workbook
 from openpyxl.styles import Font
@@ -16,11 +17,16 @@ from vkbottle.tools.uploader import DocMessagesUploader
 
 from core.config import settings
 from core.database import async_session_maker
-from core.models import Department, Ticket, TicketStatus
+from core.models import Department, ReportRun, Ticket, TicketStatus
 
 logger = logging.getLogger(__name__)
 
 COMPLETED_STATUSES = {TicketStatus.COMPLETED, TicketStatus.COMPLETED_AUTO}
+
+
+def get_app_tz() -> ZoneInfo:
+    """Часовой пояс приложения (APP_TIMEZONE, по умолчанию Europe/Moscow)."""
+    return ZoneInfo(settings.APP_TIMEZONE)
 
 
 def _status_text(status) -> str:
@@ -45,8 +51,17 @@ def _department_name(department) -> str:
 
 
 async def _fetch_report_data(report_date: datetime) -> dict:
-    """Собирает данные для отчёта за указанную дату."""
-    day_start = datetime.combine(report_date.date(), datetime.min.time(), tzinfo=timezone.utc)
+    """Собирает данные для отчёта за указанную дату.
+
+    Границы суток считаются в часовом поясе приложения (APP_TIMEZONE),
+    в БД даты хранятся в UTC.
+    """
+    tz = get_app_tz()
+    if report_date.tzinfo is None:
+        report_date = report_date.replace(tzinfo=tz)
+    day_start = report_date.astimezone(tz).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     day_end = day_start + timedelta(days=1)
 
     async with async_session_maker() as session:
@@ -279,48 +294,140 @@ async def send_report_to_vk(api, admin_vk_id: int, report_bytes: bytes, filename
 
 
 def _seconds_until_report() -> float:
+    """Секунды до ближайшего запуска отчёта (в часовом поясе APP_TIMEZONE)."""
     try:
         report_time = datetime.strptime(settings.REPORT_TIME, "%H:%M").time()
     except ValueError as error:
         raise ValueError("REPORT_TIME должен быть в формате HH:MM") from error
 
-    now = datetime.now(timezone.utc)
-    next_report = datetime.combine(now.date(), report_time, tzinfo=timezone.utc)
+    tz = get_app_tz()
+    now = datetime.now(tz)
+    next_report = datetime.combine(now.date(), report_time, tzinfo=tz)
     if next_report <= now:
         next_report += timedelta(days=1)
     return (next_report - now).total_seconds()
 
 
+def parse_report_date(text: str) -> date | None:
+    """Парсит дату из строки формата ДД.ММ.ГГГГ или ДД.ММ.ГГ.
+
+    Возвращает date или None, если формат неверный.
+    """
+    text = text.strip()
+    for fmt in ("%d.%m.%Y", "%d.%m.%y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+async def get_report_for_date(report_day: date) -> dict:
+    """Собирает данные для отчёта за одну конкретную дату (асинхронная обёртка)."""
+    tz = get_app_tz()
+    day_start = datetime.combine(report_day, datetime.min.time(), tzinfo=tz)
+    day_end = day_start + timedelta(days=1)
+
+    async with async_session_maker() as session:
+        tickets = await session.scalars(
+            select(Ticket)
+            .options(selectinload(Ticket.user), selectinload(Ticket.department))
+            .where(Ticket.created_at >= day_start, Ticket.created_at < day_end)
+            .order_by(Ticket.created_at)
+        )
+        departments = await session.scalars(
+            select(Department).order_by(Department.name)
+        )
+    return {"tickets": list(tickets), "departments": list(departments)}
+
+
+async def get_report_for_period(date_from: date, date_to: date) -> dict:
+    """Собирает данные для отчёта за период (от date_from до date_to включительно)."""
+    if date_from > date_to:
+        raise ValueError("Дата начала не может быть позже даты окончания")
+
+    tz = get_app_tz()
+    period_start = datetime.combine(date_from, datetime.min.time(), tzinfo=tz)
+    period_end = datetime.combine(date_to, datetime.max.time(), tzinfo=tz)
+
+    async with async_session_maker() as session:
+        tickets = await session.scalars(
+            select(Ticket)
+            .options(selectinload(Ticket.user), selectinload(Ticket.department))
+            .where(Ticket.created_at >= period_start, Ticket.created_at <= period_end)
+            .order_by(Ticket.created_at)
+        )
+        departments = await session.scalars(
+            select(Department).order_by(Department.name)
+        )
+    return {"tickets": list(tickets), "departments": list(departments)}
+
+
+async def is_report_already_sent(report_day: date) -> bool:
+    """Был ли отчёт за указанную дату уже отправлен (таблица report_runs)."""
+    async with async_session_maker() as session:
+        existing = await session.scalar(
+            select(ReportRun).where(ReportRun.report_date == report_day)
+        )
+        return existing is not None
+
+
+async def mark_report_sent(report_day: date, status: str = "sent") -> None:
+    """Зафиксировать факт отправки отчёта за дату (защита от дублей, идемпотентно)."""
+    async with async_session_maker() as session:
+        existing = await session.scalar(
+            select(ReportRun).where(ReportRun.report_date == report_day)
+        )
+        if existing is not None:
+            return
+        session.add(ReportRun(report_date=report_day, status=status))
+        await session.commit()
+
+
+async def _run_report(api, admin_vk_id: int, report_date: datetime) -> None:
+    """Сформировать и отправить отчёт за дату (VK + email) с защитой от повторов."""
+    report_day = report_date.date()
+
+    if await is_report_already_sent(report_day):
+        logger.info("Отчёт за %s уже отправлен ранее — пропуск", report_day)
+        return
+
+    data = await _fetch_report_data(report_date)
+    report_bytes = build_daily_report(data, report_date)
+    filename = f"report_{report_date:%Y-%m-%d}.xlsx"
+
+    # Отправка в VK — отдельный try/except
+    vk_failed = False
+    if admin_vk_id:
+        try:
+            await send_report_to_vk(api, admin_vk_id, report_bytes, filename)
+        except Exception:
+            logger.exception("Не удалось отправить отчёт в VK")
+            vk_failed = True
+
+    # Отправка по email — отдельный try/except
+    email_failed = False
+    if settings.REPORT_EMAILS:
+        try:
+            await asyncio.to_thread(send_report_email, report_bytes, filename)
+        except Exception:
+            logger.exception("Не удалось отправить отчёт по email")
+            email_failed = True
+
+    if not vk_failed and not email_failed:
+        await mark_report_sent(report_day)
+        logger.info("Ежедневный отчёт за %s отправлен", report_day)
+
+
 async def _report_loop(api, admin_vk_id: int) -> None:
+    tz = get_app_tz()
     while True:
         try:
             await asyncio.sleep(_seconds_until_report())
 
-            report_date = datetime.now(timezone.utc) - timedelta(days=1)
-            data = await _fetch_report_data(report_date)
-            report_bytes = build_daily_report(data, report_date)
-            filename = f"report_{report_date:%Y-%m-%d}.xlsx"
-
-            # Отправка в VK — отдельный try/except
-            vk_failed = False
-            if admin_vk_id:
-                try:
-                    await send_report_to_vk(api, admin_vk_id, report_bytes, filename)
-                except Exception:
-                    logger.exception("Не удалось отправить отчёт в VK")
-                    vk_failed = True
-
-            # Отправка по email — отдельный try/except
-            email_failed = False
-            if settings.REPORT_EMAILS:
-                try:
-                    await asyncio.to_thread(send_report_email, report_bytes, filename)
-                except Exception:
-                    logger.exception("Не удалось отправить отчёт по email")
-                    email_failed = True
-
-            if not vk_failed and not email_failed:
-                logger.info("Ежедневный отчёт отправлен")
+            # Отчёт за вчера по часовому поясу приложения
+            report_date = datetime.now(tz) - timedelta(days=1)
+            await _run_report(api, admin_vk_id, report_date)
         except Exception:
             logger.exception("Не удалось отправить ежедневный отчёт")
             await asyncio.sleep(60)

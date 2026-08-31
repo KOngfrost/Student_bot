@@ -1,66 +1,54 @@
-# Автономный запуск на VPS
+# Развёртывание Student Bot (production)
 
-Эта инструкция запускает VK-бота на удаленном Linux-сервере. После завершения SSH-сессии ноутбук можно выключить: Docker продолжит держать bot и PostgreSQL запущенными на VPS.
+Пошаговая установка на чистый VPS (Ubuntu 22.04/24.04) и эксплуатация.
 
-## 1. Подготовьте сервер
+---
 
-Арендуйте небольшой VPS с Ubuntu 22.04/24.04 или другой поддерживаемой Linux-системой. Рекомендуется 1 CPU, 1 GB RAM и 10 GB SSD.
+## 1. Требования
 
-Подключитесь по SSH:
+- VPS: 1 vCPU / 1–2 GB RAM, 10 GB SSD
+- Docker Engine + Docker Compose plugin (v2.24+)
+- Токен сообщества VK (Long Poll API включён)
+- Доступ по SSH
 
-```bash
-ssh user@SERVER_IP
-```
-
-Установите Docker официальным способом для выбранного дистрибутива и проверьте:
-
-```bash
-docker --version
-docker compose version
-```
-
-Если Docker требует группу пользователя, выполните и перелогиньтесь:
+## 2. Установка Docker
 
 ```bash
-sudo usermod -aG docker $USER
+curl -fsSL https://get.docker.com | sh
+docker compose version   # должно быть >= 2.24 (нужно для Tailscale-override)
 ```
 
-## 2. Загрузите проект
+## 3. Клонирование и .env
 
 ```bash
-git clone REPOSITORY_URL student_bot
-cd student_bot
-```
-
-Не загружайте `.env` в Git и не вставляйте токен в командную строку.
-
-## 3. Создайте секреты
-
-```bash
-nano .env
-```
-
-Минимальный набор:
-
-```env
-VK_BOT_TOKEN=your_vk_community_token
-ADMIN_VK_IDS=123456789
-VK_REPORT_ADMIN_ID=123456789
-POSTGRES_USER=student_bot
-POSTGRES_PASSWORD=long_random_database_password
-POSTGRES_DB=student_bot
-DB_HOST=db
-DB_PORT=5432
-REPORT_TIME=09:00
-```
-
-Ограничьте права файла:
-
-```bash
+git clone https://github.com/KOngfrost/Student_bot.git /opt/student_bot
+cd /opt/student_bot
+cp .env.example .env
 chmod 600 .env
 ```
 
-## 4. Запустите в фоне
+Заполните `.env` (обязательность указана в комментарии к каждой переменной):
+
+| Переменная | Назначение |
+|---|---|
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | База данных |
+| `VK_BOT_TOKEN` | Токен сообщества VK |
+| `ADMIN_VK_IDS` | VK ID админов бота (через запятую) |
+| `VK_REPORT_ADMIN_ID` | Получатель отчётов и уведомлений безопасности |
+| `REPORT_TIME` | Время ежедневного отчёта `HH:MM` (в поясе `APP_TIMEZONE`) |
+| `APP_TIMEZONE` | Часовой пояс, по умолчанию `Europe/Moscow` |
+| `ALLOW_DB_CREATE` | В production — `false` |
+| `SESSION_SECRET_KEY` | Секрет сессий веб-панели (**обязателен**, панель не запустится без него) |
+| `WEB_ADMIN_USERNAME` / `WEB_ADMIN_PASSWORD` | Bootstrap-вход в панель (до создания web_users) |
+| `TAILSCALE_AUTH_KEY` | Только для Tailscale-профиля |
+
+Сгенерируйте секрет сессии:
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
+```
+
+## 4. Первый запуск
 
 ```bash
 docker compose up -d --build
@@ -68,58 +56,138 @@ docker compose ps
 docker compose logs --tail 100 bot
 ```
 
-Ожидаемый статус обоих сервисов: `Up`. Проверка базы:
+Порядок запуска контролируется Compose: **PostgreSQL (healthcheck) → миграции Alembic (одноразовый контейнер `migrate`) → бот и веб-панель**. Схема БД изменяется только через Alembic; приложение не создаёт базу (`ALLOW_DB_CREATE=false`).
+
+Проверка здоровья:
 
 ```bash
-docker compose exec db pg_isready -U student_bot -d student_bot
+curl -s http://127.0.0.1:8000/health   # {"status":"ok"}
 ```
 
-## 5. Обновление проекта
+## 5. Создание администраторов
+
+**VK-суперадмин** (админ-команды бота):
 
 ```bash
-cd ~/student_bot
+docker compose exec bot python scripts/init_superadmin.py --vk-id 123456789 --name "Иванов Иван"
+```
+
+**Пользователи веб-панели** (таблица `web_users`, пароль хранится только в виде хеша):
+
+```bash
+docker compose exec bot python scripts/create_web_user.py --username admin --role SUPERADMIN
+# пароль спросит скрыто
+
+docker compose exec bot python scripts/create_web_user.py \
+    --username zhilbyt --role DEPARTMENT_ADMIN --department "Жилбыт"
+```
+
+Роли:
+
+| Роль | Права |
+|---|---|
+| `SUPERADMIN` | Все отделы, передача заявок, управление админами |
+| `DEPARTMENT_ADMIN` | Заявки и контент только своего отдела |
+| `VIEWER` | Просмотр всего, без изменений |
+
+Пока `web_users` пуст, вход возможен по `WEB_ADMIN_USERNAME`/`WEB_ADMIN_PASSWORD` из `.env` (роль SUPERADMIN). После заведения пользователей в базе bootstrap-вход можно отключить, очистив эти переменные в `.env`.
+
+## 6. Доступ к панели: Tailscale (рекомендуется)
+
+Панель **не публикуется в интернет**: порт привязан к `127.0.0.1:8000`. Варианты доступа:
+
+**Вариант А — SSH-туннель** (без дополнительной настройки):
+
+```bash
+ssh -L 8000:127.0.0.1:8000 user@server
+# затем открыть http://localhost:8000
+```
+
+**Вариант Б — Tailscale** (доступ из приватной сети, без публикации портов):
+
+1. Auth key: https://login.tailscale.com/admin/settings/keys
+2. Впишите `TAILSCALE_AUTH_KEY=...` в `.env`
+3. Запустите:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tailscale.override.yml \
+    --profile tailscale up -d
+```
+
+Панель доступна внутри tailnet по адресу `http://student-bot-panel:8000`. Порт в интернет при этом не публикуется вообще.
+
+**Firewall сервера:** открыть только `22/tcp`. Порты 5432 (PostgreSQL) и 8000 (панель) наружу не открывать.
+
+## 7. Резервное копирование
+
+```bash
+chmod +x scripts/backup.sh scripts/restore.sh
+./scripts/backup.sh
+```
+
+По умолчанию: `/var/backups/student_bot`, хранение 7 дневных + 4 недельных + 3 месячных копий.
+
+Cron (ежедневно в 03:00):
+
+```bash
+crontab -e
+# 0 3 * * * /opt/student_bot/scripts/backup.sh >> /var/log/student_bot_backup.log 2>&1
+```
+
+**Обязательно** выгружайте копии за пределы VPS (S3, Backblaze B2, rclone) и **раз в месяц проверяйте восстановление**:
+
+```bash
+./scripts/restore.sh /var/backups/student_bot/student_bot_2026-08-31.sql.gz
+```
+
+## 8. Мониторинг
+
+- `restart: unless-stopped` — автоперезапуск контейнеров.
+- Healthcheck веб-панели: `GET /health` (проверяет и доступность БД).
+- Healthcheck бота: heartbeat-файл (`scripts/healthcheck_bot.py`), бот обновляет его при обработке событий и раз в минуту.
+- Журнал действий: таблица `logs` (входы, ответы, смены статусов).
+- Подозрительная активность: 5 неудачных входов за 15 минут → временная блокировка IP + уведомление на `VK_REPORT_ADMIN_ID`.
+
+## 9. Обновление
+
+```bash
+cd /opt/student_bot
 git pull
 docker compose up -d --build
+docker compose logs migrate   # убедиться, что миграции прошли
 docker image prune -f
 ```
 
-`docker image prune -f` удаляет только неиспользуемые промежуточные образы, но не named volume PostgreSQL.
+## 10. Смена секретов
 
-## 6. Автозапуск после перезагрузки
+1. Сгенерируйте новый `SESSION_SECRET_KEY`, впишите в `.env`.
+2. `docker compose up -d` — все сессии инвалидируются (это ожидаемо).
+3. Пароль web_user: `docker compose exec bot python scripts/create_web_user.py --username admin --role SUPERADMIN` (перезапишет пароль).
 
-В Compose задано `restart: unless-stopped`. Включите Docker при старте ОС:
-
-```bash
-sudo systemctl enable --now docker
-docker compose up -d
-```
-
-Проверьте после перезагрузки VPS:
+## 11. Аварийный откат
 
 ```bash
-docker compose ps
+# Откатить последнюю миграцию
+docker compose run --rm migrate alembic downgrade -1
+
+# Восстановить базу из копии
+docker compose stop bot web-admin
+./scripts/restore.sh /var/backups/student_bot/student_bot_2026-08-31.sql.gz
+docker compose start bot web-admin
+
+# Откат кода
+git checkout <предыдущий-тег-или-коммит>
+docker compose up -d --build
 ```
 
-## 7. Резервная копия PostgreSQL
-
-```bash
-mkdir -p ~/student_bot/backups
-docker compose exec -T db pg_dump -U student_bot -d student_bot > ~/student_bot/backups/student_bot_$(date +%F).sql
-```
-
-Копируйте дампы за пределы VPS. Сам Docker volume не заменяет резервную копию.
-
-## 8. Диагностика
+## 12. Диагностика
 
 ```bash
 docker compose ps
 docker compose logs --tail 200 bot
-docker compose logs --tail 200 db
+docker compose logs --tail 200 web-admin
+docker compose logs --tail 200 migrate
 docker compose restart bot
 ```
 
 Если бот не отвечает, проверьте Long Poll API, события сообщений и действительность токена в настройках VK-сообщества. Убедитесь, что в логах нет ошибок подключения к PostgreSQL или `VKAPIError`.
-
-## Почему нужен VPS
-
-VK Long Poll - это постоянное соединение. Одноразовая serverless-функция завершится и перестанет получать события. Нужен VPS, облачный worker или другой постоянно работающий сервис. Для текущего проекта самый простой вариант - VPS с Docker Compose.

@@ -51,11 +51,11 @@
             <div class="admin-card-footer">
                 <span class="admin-id">#{{ admin.id }}</span>
                 {% if admin.role.value != 'superadmin' %}
-                <a href="/admin/admins/{{ admin.id }}/delete" 
-                   class="btn btn-danger btn-small"
-                   onclick="return confirm('Удалить этого админа?')">
-                    Удалить
-                </a>
+                <form method="post" action="/admin/admins/{{ admin.id }}/delete"
+                      onsubmit="return confirm('Удалить этого админа?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-danger btn-small">Удалить</button>
+                </form>
                 {% else %}
                 <span class="muted" style="font-size: 12px;">Нельзя удалить</span>
                 {% endif %}

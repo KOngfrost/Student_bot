@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, Integer, String, Text, Boolean, DateTime,
+    Column, Integer, String, Text, Boolean, DateTime, Date,
     ForeignKey, Enum as SAEnum, UniqueConstraint, Index, CheckConstraint
 )
 from sqlalchemy.orm import declarative_base, relationship
@@ -12,6 +12,20 @@ Base = declarative_base()
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
     SUPERADMIN = "superadmin"
+
+
+class WebRole(str, enum.Enum):
+    """Роли пользователей веб-админки."""
+    SUPERADMIN = "SUPERADMIN"
+    DEPARTMENT_ADMIN = "DEPARTMENT_ADMIN"
+    VIEWER = "VIEWER"
+
+
+class MessageAuthorType(str, enum.Enum):
+    """Автор сообщения в истории заявки."""
+    USER = "user"        # студент (VK)
+    ADMIN = "admin"      # администратор (веб-панель)
+    SYSTEM = "system"    # системные события (смена статуса и т.п.)
 
 
 class TicketStatus(str, enum.Enum):
@@ -87,6 +101,63 @@ class Ticket(Base):
 
     user = relationship("User", back_populates="tickets")
     department = relationship("Department", back_populates="tickets")
+    messages = relationship(
+        "TicketMessage",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        order_by="TicketMessage.created_at",
+    )
+
+
+class TicketMessage(Base):
+    """Сообщение в истории заявки (вопрос студента, ответ администратора, системные события)."""
+    __tablename__ = "ticket_messages"
+    __table_args__ = (
+        Index("ix_ticket_messages_ticket_id", "ticket_id"),
+        CheckConstraint(
+            "author_type IN ('USER', 'ADMIN', 'SYSTEM')",
+            name="ck_ticket_messages_author_type",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket_id = Column(
+        Integer,
+        ForeignKey("tickets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    author_type = Column(SAEnum(MessageAuthorType), nullable=False)
+    author_vk_id = Column(Integer, nullable=True)  # VK ID автора, если это студент
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    ticket = relationship("Ticket", back_populates="messages")
+
+
+class WebUser(Base):
+    """Пользователь веб-админки (пароль хранится только в виде хеша)."""
+    __tablename__ = "web_users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)  # формат: pbkdf2_sha256$iterations$salt$hash
+    role = Column(SAEnum(WebRole), default=WebRole.VIEWER, nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+
+    department = relationship("Department")
+
+
+class ReportRun(Base):
+    """Факт отправки ежедневного отчёта — защита от повторных отправок."""
+    __tablename__ = "report_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    report_date = Column(Date, unique=True, nullable=False)  # дата отчёта (за которую он сформирован)
+    status = Column(String, default="sent", nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class KnowledgeBase(Base):

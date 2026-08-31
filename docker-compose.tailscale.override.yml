@@ -1,0 +1,25 @@
+# Override для доступа к веб-панели через Tailscale.
+#
+# Использование:
+#   docker compose -f docker-compose.yml -f docker-compose.tailscale.override.yml \
+#     --profile tailscale up -d
+#
+# Панель будет доступна только внутри вашей tailnet-сети по адресу:
+#   http://student-bot-panel:8000  (или IP Tailscale-узла)
+#
+# Наружу (в интернет) панель при этом не публикуется вообще.
+# Требуется Docker Compose >= 2.24 (тег !reset) и TAILSCALE_AUTH_KEY в .env.
+
+services:
+  web-admin:
+    # Убираем публикацию порта на хост — трафик идёт только через tailnet
+    ports: !reset []
+    # Присоединяем сетевой стек контейнера к Tailscale
+    network_mode: "service:tailscale"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      tailscale:
+        condition: service_started

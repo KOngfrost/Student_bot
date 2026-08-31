@@ -1,0 +1,102 @@
+"""Тесты аутентификации: пароли, rate limiting, роли."""
+
+from unittest.mock import MagicMock
+
+from web.dependencies import can_write, is_superadmin, role_of
+from web.routes.auth import (
+    _clear_attempts,
+    _is_rate_limited,
+    _record_failed_attempt,
+)
+from web.security.passwords import hash_password, verify_password
+
+
+class TestPasswords:
+    def test_hash_and_verify_correct(self):
+        stored = hash_password("S3cretPassword!")
+        assert verify_password("S3cretPassword!", stored) is True
+
+    def test_verify_wrong_password(self):
+        stored = hash_password("correct")
+        assert verify_password("wrong", stored) is False
+
+    def test_hash_contains_algorithm_and_iterations(self):
+        stored = hash_password("test")
+        parts = stored.split("$")
+        assert parts[0] == "pbkdf2_sha256"
+        assert int(parts[1]) >= 100_000
+
+    def test_different_hashes_for_same_password(self):
+        assert hash_password("same") != hash_password("same")
+
+    def test_verify_invalid_stored_format(self):
+        assert verify_password("test", "not-a-valid-hash") is False
+
+    def test_verify_empty_stored(self):
+        assert verify_password("test", "") is False
+
+
+class TestRateLimiting:
+    def setup_method(self):
+        _clear_attempts("1.2.3.4")
+
+    def teardown_method(self):
+        _clear_attempts("1.2.3.4")
+
+    def test_not_limited_initially(self):
+        assert _is_rate_limited("1.2.3.4") is False
+
+    def test_limited_after_five_failures(self):
+        for _ in range(5):
+            _record_failed_attempt("1.2.3.4")
+        assert _is_rate_limited("1.2.3.4") is True
+
+    def test_window_is_15_minutes(self):
+        from web.routes.auth import _LOGIN_MAX_ATTEMPTS, _LOGIN_WINDOW_SECONDS
+
+        assert _LOGIN_MAX_ATTEMPTS == 5
+        assert _LOGIN_WINDOW_SECONDS == 15 * 60
+
+
+class TestRoles:
+    def test_role_normalization_superadmin(self):
+        assert role_of({"role": "SUPERADMIN"}) == is_superadmin_role()
+
+    def test_role_backward_compat_lowercase(self):
+        assert is_superadmin({"role": "superadmin"}) is True
+
+    def test_department_admin_cannot_see_all(self):
+        user = {"role": "DEPARTMENT_ADMIN", "department_id": 1}
+        assert is_superadmin(user) is False
+        assert can_write(user) is True
+
+    def test_viewer_read_only(self):
+        user = {"role": "VIEWER"}
+        assert can_write(user) is False
+        assert is_superadmin(user) is False
+
+    def test_no_role(self):
+        assert role_of({}) is None
+        assert can_write({}) is False
+
+
+def is_superadmin_role():
+    from core.models import WebRole
+
+    return WebRole.SUPERADMIN
+
+
+class TestSessionHelpers:
+    def test_get_current_user_from_session(self):
+        from web.dependencies import get_current_user
+
+        request = MagicMock()
+        request.session = {"user": {"username": "admin"}}
+        assert get_current_user(request)["username"] == "admin"
+
+    def test_get_current_user_missing(self):
+        from web.dependencies import get_current_user
+
+        request = MagicMock()
+        request.session = {}
+        assert get_current_user(request) is None

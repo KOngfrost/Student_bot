@@ -1,4 +1,4 @@
-from sqlalchemy import func, select, inspect
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from core.config import settings

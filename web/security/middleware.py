@@ -7,7 +7,6 @@ import logging
 import re
 import time
 from collections import defaultdict
-from functools import wraps
 from typing import Optional
 
 from fastapi import Request, HTTPException, status
@@ -240,7 +239,6 @@ def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
     """
     import os
     import base64
-    import hashlib
 
     if salt is None:
         salt = base64.b64encode(os.urandom(16)).decode()
@@ -257,7 +255,6 @@ def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
 def verify_password(password: str, hashed: str, salt: str) -> bool:
     """Проверить пароль против захешированного значения."""
     import base64
-    import hashlib
     import secrets
 
     hashed_input = hashlib.pbkdf2_hmac(

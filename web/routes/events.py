@@ -117,9 +117,9 @@ async def add_event(request: Request, user=Depends(require_admin)):
     return RedirectResponse(url="/events/", status_code=302)
 
 
-@router.get("/{event_id}/delete")
+@router.post("/{event_id}/delete")
 async def delete_event(request: Request, event_id: int, user=Depends(require_admin)):
-    """Удаление события с проверкой прав."""
+    """Удаление события (POST с CSRF-токеном) с проверкой прав."""
     try:
         async with async_session_maker() as session:
             event = await session.get(Event, event_id)

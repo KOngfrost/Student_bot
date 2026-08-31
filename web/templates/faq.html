@@ -62,11 +62,11 @@
                         {% endif %}
                     </td>
                     <td>
-                        <a href="/faq/{{ node.id }}/delete" 
-                           class="btn btn-danger btn-small"
-                           onclick="return confirm('Удалить этот элемент?')">
-                            Удалить
-                        </a>
+                        <form method="post" action="/faq/{{ node.id }}/delete"
+                              onsubmit="return confirm('Удалить этот элемент?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="btn btn-danger btn-small">Удалить</button>
+                        </form>
                     </td>
                 </tr>
                 {% else %}

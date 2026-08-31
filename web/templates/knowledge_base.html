@@ -54,11 +54,11 @@
                     <td><code>{{ kb.keywords }}</code></td>
                     <td>{{ kb.answer[:50] }}{% if kb.answer|length > 50 %}...{% endif %}</td>
                     <td>
-                        <a href="/knowledge/{{ kb.id }}/delete" 
-                           class="btn btn-danger btn-small"
-                           onclick="return confirm('Удалить эту запись?')">
-                            Удалить
-                        </a>
+                        <form method="post" action="/knowledge/{{ kb.id }}/delete"
+                              onsubmit="return confirm('Удалить эту запись?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="btn btn-danger btn-small">Удалить</button>
+                        </form>
                     </td>
                 </tr>
                 {% else %}

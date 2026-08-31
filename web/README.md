@@ -1,190 +1,56 @@
-# Веб-админка Student Bot
+# Веб-админ-панель (FastAPI)
 
-## 🚀 Быстрый старт
-
-### 1. Установка зависимостей
+## Запуск
 
 ```bash
-pip install -r requirements.txt
+uvicorn web.main:app --host 0.0.0.0 --port 8000
 ```
 
-### 2. Запуск веб-сервера
+Обязательные переменные окружения (см. `.env.example`):
 
-```bash
-uvicorn web.main:app --host 0.0.0.0 --port 8000 --reload
-```
+- `SESSION_SECRET_KEY` — без него приложение **не запустится** (`RuntimeError`);
+- `WEB_ADMIN_USERNAME` / `WEB_ADMIN_PASSWORD` — bootstrap-вход, пока в базе
+  нет пользователей `web_users` (создаются через `scripts/create_web_user.py`).
 
-### 3. Вход в систему
-
-- URL: `http://localhost:8000`
-- Логин: `admin`
-- Пароль: `admin123`
-
-> ⚠️ **ОБЯЗАТЕЛЬНО ИЗМЕНИТЕ ПАРОЛЬ!** См. раздел "Безопасность" ниже.
-
----
-
-## 🔐 БЕЗОПАСНОСТЬ
-
-### ⚠️ СРОЧНО: измените пароль по умолчанию!
-
-Откройте `web/routes/auth.py` и измените:
-
-```python
-ADMINS = {
-    "admin": "your_secure_password",  # Замените на СВОЙ пароль!
-}
-```
-
-### Для продакшена
-
-1. **Используйте хэши паролей:**
-   ```python
-   import bcrypt
-   hashed = bcrypt.hashpw(b"your_password", bcrypt.gensalt()).decode()
-   # Проверка: bcrypt.checkpw(password.encode(), hashed.encode())
-   # Результат вставьте в ADMINS: {"admin": hashed}
-   ```
-
-2. **Включите HTTPS** через reverse proxy (nginx/caddy)
-
-3. **Настройте Tailscale** для безопасного удалённого доступа
-
-4. **Используйте аутентификацию в БД** вместо жёстко заданных паролей
-
----
-
-## 📁 Структура проекта
+## Структура
 
 ```
 web/
-├── main.py              # FastAPI приложение
-├── templates/           # Jinja2 шаблоны
-│   ├── base.html        # Базовый шаблон
-│   ├── login.html       # Страница входа
-│   ├── dashboard.html   # Дашборд
-│   ├── admins.html      # Управление админами
-│   ├── tickets.html     # Заявки
-│   ├── knowledge_base.html  # База знаний
-│   ├── faq.html         # FAQ
-│   ├── events.html      # События
-│   └── logs.html        # Логи
-├── static/              # Статические файлы
-│   └── style.css        # Стили
-└── routes/              # Роутеры
-    ├── auth.py          # Авторизация
-    ├── dashboard.py     # Дашборд
-    ├── admin_panel.py   # Управление админами
-    ├── tickets.py       # Заявки
-    ├── knowledge_base.py  # База знаний
-    ├── faq.py           # FAQ
-    ├── events.py        # События
-    └── logs.py          # Логи
+├── main.py              # FastAPI-приложение: middleware, /health, роутеры
+├── templating.py        # Jinja2
+├── dependencies.py      # Авторизация и роли (SUPERADMIN/DEPARTMENT_ADMIN/VIEWER)
+├── security/
+│   ├── csrf.py          # CSRF-защита всех POST-форм
+│   ├── middleware.py    # Security headers, rate limiter, санитизация, PBKDF2
+│   └── passwords.py     # Хеширование паролей web_users
+└── routes/
+    ├── auth.py          # Вход/выход, rate limit 5/15 мин, журналирование входов
+    ├── dashboard.py     # Дашборд с фильтром по отделу
+    ├── tickets.py       # Заявки: просмотр, ответ, статус, передача (IDOR-защита)
+    ├── admin_panel.py   # VK-администраторы
+    ├── knowledge_base.py, faq.py, events.py, logs.py
 ```
 
----
+## Модель доступа
 
-## 🎯 Функционал
+- Сессия хранит `{username, role, web_user_id, department_id}`.
+- `web/dependencies.py`:
+  - `require_auth` — редирект на логин;
+  - `require_writer` — 403 для VIEWER;
+  - `require_superadmin` — только SUPERADMIN;
+  - `get_admin_scope(session, user)` → `(is_super, dept_id)` для IDOR-фильтров.
 
-### Дашборд (`/`)
-- Статистика по заявкам
-- Последние заявки
-- Быстрый обзор системы
+## Безопасность
 
-### Управление администраторами (`/admin/admins/`)
-- Добавление новых админов
-- Привязка к отделам
-- Назначение ролей (admin/superadmin)
-- Удаление админов
+- Session cookie: `HttpOnly`, `Secure`, `SameSite=strict`, max_age 1 час.
+- CSRF-токен в сессии, проверяется для всех POST/PUT/DELETE/PATCH.
+- Rate limiting входа: 5 неудач за 15 минут на IP → блокировка + уведомление
+  суперадмина (VK `VK_REPORT_ADMIN_ID` + таблица `logs`).
+- Все удаления — только POST с CSRF-токеном и подтверждением.
+- CSP, X-Frame-Options: DENY, скрытие заголовка `Server`.
+- Лимит размера тела запроса: 10 MB.
 
-### Заявки (`/tickets/`)
-- Просмотр всех заявок
-- Фильтрация по статусу и отделу
-- Поиск по теме/описанию
-- Просмотр деталей заявки
+## Healthcheck
 
-### База знаний (`/knowledge/`)
-- Добавление записей (keywords → answer)
-- Привязка к отделам
-- Удаление записей
-
-### FAQ (`/faq/`)
-- Создание FAQ-дерева
-- Добавление вопросов и ответов
-- Иерархическая структура
-
-### События (`/events/`)
-- Создание мероприятий
-- Привязка к отделам
-- Просмотр регистраций
-
-### Логи (`/logs/`)
-- Журнал всех действий
-- Экспорт в CSV
-
----
-
-## 🔧 Запуск через Docker
-
-### 1. Сборка образа
-
-```bash
-docker-compose up -d --build web-admin
-```
-
-### 2. Проверка
-
-```bash
-docker-compose ps
-docker-compose logs web-admin
-```
-
-### 3. Доступ
-
-- URL: `http://localhost:8000`
-- Логин: `admin`
-- Пароль: `admin123`
-
----
-
-## 🆘 Решение проблем
-
-### Не могу войти
-
-1. Проверьте логин/пароль по умолчанию:
-   - Логин: `admin`
-   - Пароль: `admin123`
-
-2. **Не забудьте изменить пароль!**
-
-### Ошибка подключения к БД
-
-1. Запустите PostgreSQL:
-   ```bash
-   docker-compose up -d db
-   ```
-
-2. Проверьте подключение:
-   ```bash
-   docker-compose ps
-   ```
-
-### Веб-админка не загружается
-
-1. Проверьте, что сервер запущен:
-   ```bash
-   uvicorn web.main:app --host 0.0.0.0 --port 8000 --reload
-   ```
-
-2. Откройте браузер: `http://localhost:8000`
-
----
-
-## 📞 Поддержка
-
-При возникновении проблем:
-1. Проверьте логи Docker
-2. Проверьте подключение к БД
-3. Убедитесь, что веб-сервер запущен
-
-Для вопросов обращайтесь к разработчикам.
+`GET /health` → `{"status": "ok"}` (выполняет `SELECT 1` в БД; при недоступности
+БД — 503). Используется docker healthcheck.
