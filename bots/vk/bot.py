@@ -8,18 +8,12 @@ patch_vkbottle_logging()
 
 from vkbottle import Bot
 from vkbottle.bot import Message
+from vkbottle.dispatch.rules.base import RegexRule
 from vkbottle.exception_factory.base_exceptions import VKAPIError
 from core.config import settings
 from core.bot_core import BotCore
 from core.heartbeat import touch_heartbeat
-from core.reporting import (
-    _fetch_report_data,
-    build_daily_report,
-    get_report_for_date,
-    get_report_for_period,
-    parse_report_date,
-    send_report_to_vk,
-)
+from core.reporting import _fetch_report_data, build_daily_report, get_report_for_date, get_report_for_period, parse_report_date, send_report_to_vk
 from core.ticket_service import (
     format_ticket_details,
     format_ticket_list,
@@ -201,7 +195,7 @@ async def report_by_date_handler(message: Message):
     # Сохраняем vk_id пользователя для обработки ответа
 
 
-@vk_bot.on.private_message(lambda m: re.match(r"^\d{2}\.\d{2}\.\d{4}$", m.text.strip()))
+@vk_bot.on.private_message(RegexRule(r"^\d{2}\.\d{2}\.\d{4}$"))
 async def report_by_date_input(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
@@ -243,7 +237,7 @@ async def report_by_period_handler(message: Message):
     )
 
 
-@vk_bot.on.private_message(lambda m: re.match(r"^\d{2}\.\d{2}\.\d{4}\s*[-–—]\s*\d{2}\.\d{2}\.\d{4}$", m.text.strip()))
+@vk_bot.on.private_message(RegexRule(r"^\d{2}\.\d{2}\.\d{4}\s*[-–—]\s*\d{2}\.\d{2}\.\d{4}$"))
 async def report_by_period_input(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
