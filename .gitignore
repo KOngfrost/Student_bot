@@ -16,3 +16,4 @@ pip-audit-report.json
 htmlcov/
 .coverage
 *.log
+Status/
