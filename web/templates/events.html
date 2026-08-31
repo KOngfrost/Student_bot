@@ -83,6 +83,7 @@
             <button class="close-btn" onclick="closeModal()">&times;</button>
         </div>
         <form method="POST" action="/events/">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-group">
                 <label for="department_id">Отдел</label>
                 <select id="department_id" name="department_id" required>

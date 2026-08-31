@@ -77,6 +77,7 @@
             <button class="close-btn" onclick="closeModal()">&times;</button>
         </div>
         <form method="POST" action="/admin/admins/">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-group">
                 <label for="vk_id">VK ID пользователя</label>
                 <input type="number" id="vk_id" name="vk_id" required 

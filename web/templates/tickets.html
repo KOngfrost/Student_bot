@@ -141,37 +141,26 @@ function openTicket(id) {
             return res.json();
         })
         .then(ticket => {
-            document.getElementById('modal-title').textContent = `Заявка #${ticket.id}`;
-            document.getElementById('modal-body').innerHTML = `
-                <div class="detail-block">
-                    <strong>Тема:</strong> ${ticket.topic || '—'}
-                </div>
-                <div class="detail-block">
-                    <strong>Описание:</strong>
-                    <div class="detail-box">${ticket.description || '—'}</div>
-                </div>
-                <div class="detail-block">
-                    <strong>Пользователь:</strong> 
-                    ${ticket.user ? (ticket.user.full_name || 'Аноним') : 'Аноним'}
-                </div>
-                <div class="detail-block">
-                    <strong>Отдел:</strong> ${ticket.department ? ticket.department.name : '—'}
-                </div>
-                <div class="detail-block">
-                    <strong>Статус:</strong> ${ticket.status.value}
-                </div>
-                <div class="detail-block">
-                    <strong>Дата:</strong> ${ticket.created_at ? new Date(ticket.created_at).toLocaleString('ru-RU') : '—'}
-                </div>
-                ${ticket.response_text ? `
-                <div class="detail-block">
-                    <strong>Ответ:</strong>
-                    <div class="detail-box detail-box-response">${ticket.response_text}</div>
-                </div>
-                ` : ''}
-            `;
+            document.getElementById('modal-title').textContent = 'Заявка #' + ticket.id;
+            var body = '';
+            body += '<div class="detail-block"><strong>Тема:</strong> ' + escapeHtml(ticket.topic || '—') + '</div>';
+            body += '<div class="detail-block"><strong>Описание:</strong><div class="detail-box">' + escapeHtml(ticket.description || '—') + '</div></div>';
+            body += '<div class="detail-block"><strong>Пользователь:</strong> ' + (ticket.user ? (ticket.user.full_name || 'Аноним') : 'Аноним') + '</div>';
+            body += '<div class="detail-block"><strong>Отдел:</strong> ' + (ticket.department ? ticket.department.name : '—') + '</div>';
+            body += '<div class="detail-block"><strong>Статус:</strong> ' + escapeHtml(ticket.status.value) + '</div>';
+            body += '<div class="detail-block"><strong>Дата:</strong> ' + (ticket.created_at ? new Date(ticket.created_at).toLocaleString('ru-RU') : '—') + '</div>';
+            if (ticket.response_text) {
+                body += '<div class="detail-block"><strong>Ответ:</strong><div class="detail-box detail-box-response">' + escapeHtml(ticket.response_text) + '</div></div>';
+            }
+            document.getElementById('modal-body').innerHTML = body;
             document.getElementById('ticket-modal').classList.add('active');
         });
+}
+
+function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 function closeTicketModal() {

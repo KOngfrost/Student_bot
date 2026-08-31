@@ -83,6 +83,23 @@
                 sync();
             });
         })();
+
+        // CSRF: устанавливаем заголовок для всех fetch-запросов
+        (function () {
+            var token = document.querySelector('meta[name="csrf-token"]');
+            if (!token) return;
+            window.CSRF_TOKEN = token.getAttribute('content');
+
+            var originalFetch = window.fetch;
+            window.fetch = function (url, options) {
+                options = options || {};
+                options.headers = options.headers || {};
+                if (!options.headers['X-CSRF-Token'] && window.CSRF_TOKEN) {
+                    options.headers['X-CSRF-Token'] = window.CSRF_TOKEN;
+                }
+                return originalFetch.call(this, url, options);
+            };
+        })();
     </script>
     {% block extra_js %}{% endblock %}
 </body>
