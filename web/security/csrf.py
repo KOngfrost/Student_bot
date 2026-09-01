@@ -31,6 +31,12 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
         # POST/PUT/DELETE/PATCH — проверяем токен
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            # Исключаем публичные маршруты от проверки CSRF
+            public_paths = ["/auth/login"]
+            if any(request.url.path.startswith(p) for p in public_paths):
+                response = await call_next(request)
+                return response
+
             # Пытаемся получить токен из заголовка или формы
             token_from_header = request.headers.get(CSRF_HEADER_NAME)
             token_from_form = None

@@ -55,7 +55,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret,
     max_age=3600,
-    https_only=True,    # Куки только по HTTPS (безопасно при деплое за reverse-proxy)
+    https_only=os.getenv("APP_ENV") != "development",  # https_only=False для localhost
     same_site="strict", # Защита от CSRF через сторонние сайты
     path="/",
 )
