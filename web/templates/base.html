@@ -21,29 +21,32 @@
     <script nonce="{{ request.state.script_nonce|default('') }}">
         // Переключение светлой/тёмной темы с сохранением выбора
         (function () {
-            var toggle = document.getElementById('theme-toggle');
-            if (!toggle) return;
-            var icon = document.getElementById('theme-icon');
-            var label = document.getElementById('theme-label');
+            function initThemeToggle() {
+                var toggle = document.getElementById('theme-toggle');
+                if (!toggle) return;
+                var icon = document.getElementById('theme-icon');
+                var label = document.getElementById('theme-label');
 
-            function sync() {
-                var dark = document.documentElement.getAttribute('data-theme') === 'dark';
-                icon.textContent = dark ? '☀' : '☾';
-                label.textContent = dark ? 'Светлая тема' : 'Тёмная тема';
-            }
-            sync();
-
-            toggle.addEventListener('click', function () {
-                var dark = document.documentElement.getAttribute('data-theme') === 'dark';
-                if (dark) {
-                    document.documentElement.removeAttribute('data-theme');
-                    localStorage.setItem('theme', 'light');
-                } else {
-                    document.documentElement.setAttribute('data-theme', 'dark');
-                    localStorage.setItem('theme', 'dark');
+                function sync() {
+                    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+                    icon.textContent = dark ? '☀' : '☾';
+                    label.textContent = dark ? 'Светлая тема' : 'Тёмная тема';
                 }
                 sync();
-            });
+
+                toggle.addEventListener('click', function () {
+                    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+                    if (dark) {
+                        document.documentElement.removeAttribute('data-theme');
+                        localStorage.setItem('theme', 'light');
+                    } else {
+                        document.documentElement.setAttribute('data-theme', 'dark');
+                        localStorage.setItem('theme', 'dark');
+                    }
+                    sync();
+                });
+            }
+            document.addEventListener('DOMContentLoaded', initThemeToggle);
         })();
 
         // CSRF: устанавливаем заголовок для всех fetch-запросов
@@ -65,7 +68,51 @@
     </script>
     </head>
 <body>
+    {% if user is defined and user %}
+    <div class="container">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <a href="/" class="brand">
+                    <span class="monogram">SB</span>
+                    <span>
+                        <span class="brand-name">Student Bot</span>
+                        <span class="brand-sub">Админ-панель</span>
+                    </span>
+                </a>
+                <div class="user-info">
+                    <span>{{ user.username }}</span>
+                    <small>{% if user.role in ['SUPERADMIN', 'superadmin'] %}Суперадмин{% else %}Админ отдела{% endif %}</small>
+                    {% if user.department_name %}<small>{{ user.department_name }}</small>{% endif %}
+                    <form method="post" action="/auth/logout">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
+                        <button class="btn-logout" type="submit">Выйти</button>
+                    </form>
+                </div>
+            </div>
+            <button class="mobile-nav-toggle" type="button" aria-controls="sidebar-nav" aria-expanded="false">Меню</button>
+            <nav class="sidebar-nav" id="sidebar-nav" aria-label="Основная навигация">
+                <span class="nav-label">Рабочая область</span>
+                <a class="nav-link {% if active == 'dashboard' %}active{% endif %}" href="/"><span class="ico">⌂</span>Обзор</a>
+                <a class="nav-link {% if active == 'tickets' %}active{% endif %}" href="/tickets/"><span class="ico">▣</span>Заявки</a>
+                <a class="nav-link {% if active == 'knowledge' %}active{% endif %}" href="/knowledge/"><span class="ico">▤</span>База знаний</a>
+                <a class="nav-link {% if active == 'faq' %}active{% endif %}" href="/faq/"><span class="ico">?</span>FAQ</a>
+                <a class="nav-link {% if active == 'events' %}active{% endif %}" href="/events/"><span class="ico">◷</span>События</a>
+                <a class="nav-link {% if active == 'logs' %}active{% endif %}" href="/logs/"><span class="ico">≡</span>Журнал</a>
+                {% if user.role in ['SUPERADMIN', 'superadmin', 'DEPARTMENT_ADMIN', 'admin'] %}
+                <span class="nav-label nav-label-spaced">Доступ</span>
+                <a class="nav-link {% if active == 'admins' %}active{% endif %}" href="/admin/admins/"><span class="ico">♙</span>Администраторы</a>
+                {% endif %}
+            </nav>
+            <button class="theme-toggle" id="theme-toggle" type="button"><span id="theme-icon">☾</span><span id="theme-label">Тёмная тема</span></button>
+        </aside>
+        <main class="main-content">
+            <button class="mobile-menu-backdrop" type="button" aria-label="Закрыть меню"></button>
+    {% endif %}
     {% block content %}{% endblock %}
+    {% if user is defined and user %}
+        </main>
+    </div>
+    {% endif %}
 </body>
 {% block extra_js %}{% endblock %}
 <script nonce="{{ request.state.script_nonce|default('') }}">
@@ -82,6 +129,20 @@ document.addEventListener('change', function (event) {
 document.addEventListener('submit', function (event) {
     var message = event.target.dataset.confirm;
     if (message && !window.confirm(message)) event.preventDefault();
+});
+document.addEventListener('click', function (event) {
+    var toggle = event.target.closest('.mobile-nav-toggle');
+    var backdrop = event.target.closest('.mobile-menu-backdrop');
+    if (toggle) {
+        var sidebar = document.getElementById('sidebar');
+        var expanded = toggle.getAttribute('aria-expanded') === 'true';
+        sidebar.classList.toggle('is-open', !expanded);
+        toggle.setAttribute('aria-expanded', String(!expanded));
+    }
+    if (backdrop) {
+        document.getElementById('sidebar').classList.remove('is-open');
+        document.querySelector('.mobile-nav-toggle').setAttribute('aria-expanded', 'false');
+    }
 });
 </script>
 </html>

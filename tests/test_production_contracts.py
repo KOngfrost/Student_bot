@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from sqlalchemy import select
 
 from bots.vk.keyboards import build_admin_keyboard, build_main_keyboard
 from core.config import Settings
@@ -62,3 +63,22 @@ def test_production_configuration_accepts_explicit_secure_values():
 def test_production_configuration_rejects_insecure_defaults(field: str, value: str):
     with pytest.raises(RuntimeError):
         _production_settings(**{field: value}).ensure_production_config()
+
+
+async def test_init_superadmin_allows_multiple_superadmins(db_session_maker, monkeypatch):
+    from core.models import Admin, User, UserRole
+    from scripts import init_superadmin
+
+    monkeypatch.setattr(init_superadmin, "async_session_maker", db_session_maker)
+
+    await init_superadmin.init_superadmin(1001, "Первый")
+    await init_superadmin.init_superadmin(1002, "Второй")
+    await init_superadmin.init_superadmin(1002, "Второй")
+
+    async with db_session_maker() as session:
+        admins = (await session.scalars(select(Admin))).all()
+        users = (await session.scalars(select(User))).all()
+
+    assert len(admins) == 2
+    assert all(admin.role == UserRole.SUPERADMIN for admin in admins)
+    assert {user.vk_id for user in users} == {1001, 1002}

@@ -283,6 +283,7 @@ async def login(request: Request):
             {
                 "request": request,
                 "error": "Слишком много попыток входа. Подождите 15 минут.",
+                "csrf_token": get_csrf_token(request),
             },
             status_code=429,
         )
@@ -298,7 +299,11 @@ async def login(request: Request):
         logger.warning("Неудачная попытка входа с IP %s", client_ip)
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": "Неверный логин или пароль"},
+            {
+                "request": request,
+                "error": "Неверный логин или пароль",
+                "csrf_token": get_csrf_token(request),
+            },
             status_code=401,
         )
 

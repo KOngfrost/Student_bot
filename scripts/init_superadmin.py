@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Скрипт для инициализации первого суперадмина.
-Запустить один раз при первом запуске веб-админки.
+Можно запускать для каждого нового суперадмина.
 
 Пример:
     python scripts/init_superadmin.py --vk-id 193626953 --name "Иванов Иван"
@@ -16,29 +16,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-
 from core.database import async_session_maker
 from core.models import Admin, User, UserRole
 
 
 async def init_superadmin(vk_id: int, full_name: str = ""):
-    """Создаёт первого суперадмина в базе данных."""
+    """Создаёт или повышает одного пользователя до суперадмина."""
     async with async_session_maker() as session:
-        # Проверяем, есть ли уже суперадмины
-        superadmins = await session.execute(
-            select(Admin)
-            .options(selectinload(Admin.user))
-            .where(Admin.role == UserRole.SUPERADMIN)
-        )
-        existing_superadmins = superadmins.scalars().all()
-        
-        if existing_superadmins:
-            print(f"⚠️  Уже есть {len(existing_superadmins)} суперадмин(ов)")
-            for admin in existing_superadmins:
-                print(f"   - {admin.user.full_name or 'Без имени'} (VK: {admin.user.vk_id})")
-            return
-        
         # Получаем или создаём пользователя
         user = await session.execute(
             select(User).where(User.vk_id == vk_id)
@@ -57,7 +41,20 @@ async def init_superadmin(vk_id: int, full_name: str = ""):
             else:
                 print(f"ℹ️  Пользователь уже существует: {user.full_name or vk_id}")
         
-        # Создаём суперадмина
+        existing_admin = await session.scalar(
+            select(Admin).where(Admin.user_id == user.id)
+        )
+        if existing_admin is not None:
+            if existing_admin.role == UserRole.SUPERADMIN:
+                print(f"ℹ️  Пользователь уже является суперадмином: VK {vk_id}")
+                return
+            existing_admin.role = UserRole.SUPERADMIN
+            existing_admin.department_id = None
+            await session.commit()
+            print(f"✅ Администратор повышен до суперадмина: VK {vk_id}")
+            return
+
+        # Создаём очередного суперадмина
         admin = Admin(
             user_id=user.id,
             department_id=None,

@@ -383,6 +383,8 @@ textarea {
 .container {
     display: flex;
     min-height: 100vh;
+    width: 100%;
+    min-width: 0;
 }
 
 /* ---------- Sidebar ---------- */
@@ -400,6 +402,7 @@ textarea {
     flex-direction: column;
     z-index: 100;
     border-right: 1px solid var(--pine-line);
+    flex: 0 0 250px;
 }
 
 .sidebar-header {
@@ -413,6 +416,8 @@ textarea {
     padding-bottom: 20px;
     border-bottom: 1px solid var(--pine-line);
     margin-bottom: 18px;
+    color: inherit;
+    text-decoration: none;
 }
 
 .brand .monogram {
@@ -462,6 +467,11 @@ textarea {
     color: var(--pine-text-bright);
 }
 
+.user-info small {
+    color: var(--pine-text);
+    font-size: 11.5px;
+}
+
 .btn-logout {
     color: #e0968a;
     text-decoration: none;
@@ -488,6 +498,10 @@ textarea {
     color: var(--pine-text);
     opacity: 0.6;
     padding: 0 12px 8px;
+}
+
+.nav-label-spaced {
+    margin-top: 18px;
 }
 
 .sidebar-nav {
@@ -568,6 +582,13 @@ textarea {
     padding: 34px 36px 48px;
     max-width: 1420px;
     animation: softReveal 0.45s var(--ease) both;
+    min-width: 0;
+    width: calc(100% - 250px);
+}
+
+.mobile-nav-toggle,
+.mobile-menu-backdrop {
+    display: none;
 }
 
 /* Шапка страницы */
@@ -624,6 +645,7 @@ textarea {
     margin-bottom: 22px;
     box-shadow: var(--shadow-1);
     animation: riseIn 0.4s var(--ease) backwards;
+    min-width: 0;
 }
 
 .card:nth-of-type(2) { animation-delay: 0.06s; }
@@ -1201,10 +1223,53 @@ td a:hover {
 /* ---------- Responsive ---------- */
 @media (max-width: 768px) {
     .sidebar {
-        width: 100%;
-        height: auto;
-        position: relative;
+        width: min(88vw, 320px);
+        height: 100vh;
+        position: fixed;
         padding: 16px;
+        transform: translateX(-105%);
+        transition: transform var(--speed) var(--ease);
+        box-shadow: var(--shadow-3);
+    }
+
+    .sidebar.is-open {
+        transform: translateX(0);
+    }
+
+    .mobile-nav-toggle {
+        display: inline-flex;
+        position: fixed;
+        top: 14px;
+        left: 14px;
+        z-index: 90;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--r-sm);
+        padding: 8px 12px;
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 700;
+        font-family: inherit;
+        line-height: 1.2;
+        cursor: pointer;
+        box-shadow: var(--shadow-1);
+    }
+
+    .mobile-menu-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        border: 0;
+        background: rgba(13, 9, 12, 0.45);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity var(--speed) var(--ease);
+    }
+
+    .sidebar.is-open + .main-content .mobile-menu-backdrop {
+        opacity: 1;
+        pointer-events: auto;
     }
 
     .sidebar-nav {
@@ -1223,7 +1288,8 @@ td a:hover {
 
     .main-content {
         margin-left: 0;
-        padding: 20px 16px 40px;
+        width: 100%;
+        padding: 68px 16px 40px;
     }
 
     .container {

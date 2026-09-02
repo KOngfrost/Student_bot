@@ -25,6 +25,9 @@
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
+    {% if created_credentials %}
+    <div class="alert alert-success">Данные для входа созданы. Логин: <strong>{{ created_credentials.username }}</strong>, пароль: <strong>{{ created_credentials.password }}</strong>. Сохраните их сейчас: повторно пароль не показывается.</div>
+    {% endif %}
     
     <div class="admins-grid">
         {% for admin in admins %}
@@ -80,6 +83,14 @@
                        placeholder="Например: 193626953">
             </div>
             <div class="form-group">
+                <label for="username">Логин веб-панели</label>
+                <input type="text" id="username" name="username" autocomplete="off" placeholder="Пусто: dept_admin_{{ user.get('user_id', 'ID') }}">
+            </div>
+            <div class="form-group">
+                <label for="password">Пароль веб-панели</label>
+                <input type="password" id="password" name="password" autocomplete="new-password" minlength="8" placeholder="Пусто: сгенерировать">
+            </div>
+            <div class="form-group">
                 <label for="full_name">ФИО (опционально)</label>
                 <input type="text" id="full_name" name="full_name" 
                        placeholder="Иванов Иван">
@@ -87,7 +98,7 @@
             <div class="form-group">
                 <label for="department_id">Отдел (опционально)</label>
                 <select id="department_id" name="department_id">
-                    <option value="">— Без привязки —</option>
+                    {% if user.role in ['SUPERADMIN', 'superadmin'] %}<option value="">— Без привязки —</option>{% endif %}
                     {% for dept in departments %}
                     <option value="{{ dept.id }}">{{ dept.name }}</option>
                     {% endfor %}
@@ -96,8 +107,8 @@
             <div class="form-group">
                 <label for="role">Роль</label>
                 <select id="role" name="role" required>
-                    <option value="admin">Администратор</option>
-                    <option value="superadmin">Суперадмин</option>
+                    <option value="admin">Администратор отдела</option>
+                    {% if user.role in ['SUPERADMIN', 'superadmin'] %}<option value="superadmin">Суперадмин</option>{% endif %}
                 </select>
             </div>
             <button type="submit" class="btn btn-success btn-full">Добавить</button>

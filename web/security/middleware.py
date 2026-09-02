@@ -237,26 +237,8 @@ class RequestSizeValidator:
                 pass
 
     async def check_form_size(self, request: Request) -> None:
-        """Проверить размер multipart-формы."""
-        try:
-            form = await request.form()
-            total_size = 0
-            for _, field in form.multi_items():
-                if hasattr(field, "file") and field.file:
-                    content = await field.file.read()
-                    total_size += len(content)
-                    field.file.seek(0)  # Восстанавливаем позицию
-                elif hasattr(field, "__len__"):
-                    total_size += len(str(field))
-            if total_size > self.max_body_size:
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"Размер формы превышает лимит {self.max_body_size} байт",
-                )
-        except HTTPException:
-            raise
-        except Exception:
-            pass  # Если не удаётся проверить — пропускаем
+        """Проверить размер запроса, не потребляя body до обработчика."""
+        self.check_content_length(request)
 
 
 # === Hash-утилиты ===

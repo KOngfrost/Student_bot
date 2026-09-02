@@ -13,15 +13,17 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 import logging
+import secrets
 
 from core.database import async_session_maker
-from core.models import User, Admin, Department, UserRole
+from core.models import User, Admin, Department, UserRole, WebRole, WebUser
 from web.dependencies import is_superadmin, require_auth as require_authenticated
 from web.dependencies import require_superadmin as require_superadmin_dependency
 from web.routes.auth import require_crud_rate_limit
 from web.templating import templates
 from web.security.csrf import get_csrf_token
 from web.security.middleware import sanitize_html
+from web.security.passwords import hash_password
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +53,10 @@ async def admins_page(request: Request, user=Depends(require_admin)):
 
     try:
         async with async_session_maker() as session:
-            depts_result = await session.execute(select(Department))
+            departments_stmt = select(Department)
+            if not is_superadmin(user):
+                departments_stmt = departments_stmt.where(Department.id == user.get("department_id"))
+            depts_result = await session.execute(departments_stmt)
             departments = depts_result.scalars().all()
 
             if is_superadmin(user):
@@ -70,9 +75,7 @@ async def admins_page(request: Request, user=Depends(require_admin)):
                 admins_result = await session.execute(
                     select(Admin)
                     .options(selectinload(Admin.user), selectinload(Admin.department))
-                    .where(
-                        (Admin.department_id == dept_id) | (Admin.department_id.is_(None))
-                    )
+                    .where(Admin.department_id == dept_id)
                     .order_by(Admin.id)
                 )
                 admins = admins_result.scalars().all()
@@ -92,6 +95,7 @@ async def admins_page(request: Request, user=Depends(require_admin)):
             "success": request.session.pop("success", None),
             "error": request.session.pop("error", None),
             "csrf_token": get_csrf_token(request),
+            "created_credentials": request.session.pop("created_credentials", None),
         }
     )
 
@@ -109,21 +113,43 @@ async def add_admin(request: Request, user=Depends(require_admin)):
     """
     require_crud_rate_limit(request)
     form = await request.form()
-    vk_id = int(form.get("vk_id", 0))
+    try:
+        vk_id = int(form.get("vk_id", 0))
+    except (TypeError, ValueError):
+        request.session["error"] = "VK ID должен быть числом"
+        return RedirectResponse(url="/admin/admins/", status_code=302)
     full_name = sanitize_html(form.get("full_name", ""))
     department_id = form.get("department_id")
     role = form.get("role", "admin")
+    username = sanitize_html(str(form.get("username", "")).strip())
+    password = str(form.get("password", ""))
 
     # Проверка прав: только суперадмин может назначать роль superadmin
     try:
         async with async_session_maker() as session:
+            if role not in ("admin", "superadmin"):
+                request.session["error"] = "Неизвестная роль администратора"
+                return RedirectResponse(url="/admin/admins/", status_code=302)
             if role == "superadmin" and not is_superadmin(user):
                 request.session["error"] = "Только суперадмин может назначать суперадминов"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
-            # Обычный админ может назначать только роль admin
-            if role == "admin" and not is_superadmin(user):
-                request.session["error"] = "Недостаточно прав для назначения администратора"
+            selected_department_id = int(department_id) if department_id else None
+            if not is_superadmin(user):
+                selected_department_id = user.get("department_id")
+                if selected_department_id is None:
+                    request.session["error"] = "У вашего аккаунта не указан отдел"
+                    return RedirectResponse(url="/admin/admins/", status_code=302)
+
+            if not username:
+                username = f"dept_admin_{vk_id}"
+            if not password:
+                password = secrets.token_urlsafe(12)
+            if len(password) < 8:
+                request.session["error"] = "Пароль должен быть не короче 8 символов"
+                return RedirectResponse(url="/admin/admins/", status_code=302)
+            if await session.scalar(select(WebUser).where(WebUser.username == username)):
+                request.session["error"] = "Такой логин уже занят"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
             # Получаем или создаём пользователя
@@ -148,10 +174,16 @@ async def add_admin(request: Request, user=Depends(require_admin)):
             # Создаём запись админа
             new_admin = Admin(
                 user_id=db_user.id,
-                department_id=int(department_id) if department_id else None,
+                department_id=selected_department_id,
                 role=UserRole(role),
             )
             session.add(new_admin)
+            session.add(WebUser(
+                username=username,
+                password_hash=hash_password(password),
+                role=WebRole.SUPERADMIN if role == "superadmin" else WebRole.DEPARTMENT_ADMIN,
+                department_id=selected_department_id,
+            ))
             await session.commit()
     except Exception:
         logger.exception("Не удалось добавить администратора")
@@ -159,6 +191,7 @@ async def add_admin(request: Request, user=Depends(require_admin)):
         return RedirectResponse(url="/admin/admins/", status_code=302)
 
     request.session["success"] = "Администратор успешно добавлен"
+    request.session["created_credentials"] = {"username": username, "password": password}
     return RedirectResponse(url="/admin/admins/", status_code=302)
 
 

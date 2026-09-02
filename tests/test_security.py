@@ -387,6 +387,31 @@ class TestAppSecurityIntegration:
         assert response.status_code == 200
         assert 'name="csrf_token"' in response.text
 
+    def test_failed_login_keeps_csrf_token_for_retry(self, client, monkeypatch):
+        """Ошибка пароля не должна ломать следующую попытку входа."""
+        from web.routes import auth
+
+        async def reject_credentials(username, password):
+            return None
+
+        monkeypatch.setattr(auth, "_authenticate", reject_credentials)
+        login_page = client.get("/auth/login")
+        csrf_token = re.search(
+            r'name="csrf_token" value="([^"]+)"', login_page.text
+        ).group(1)
+
+        response = client.post(
+            "/auth/login",
+            data={
+                "username": "testadmin",
+                "password": "wrong",
+                "csrf_token": csrf_token,
+            },
+        )
+
+        assert response.status_code == 401
+        assert re.search(r'name="csrf_token" value="[^"]+"', response.text)
+
     def test_login_without_csrf_token_returns_403(self, client):
         """POST на вход без CSRF-токена — 403 (или 500 из-за group exception)."""
         response = client.post(
