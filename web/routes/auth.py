@@ -238,6 +238,7 @@ async def _authenticate(username: str, password: str) -> dict | None:
                     "username": username,
                     "role": WebRole.SUPERADMIN.value,
                     "web_user_id": None,
+                    "bootstrap": True,
                     "department_id": None,
                 }
         else:

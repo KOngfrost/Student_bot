@@ -9,7 +9,7 @@
         <div class="page-desc">Ключевые слова и заготовленные ответы по отделам</div>
     </div>
     <div class="actions">
-        <button class="btn btn-success" onclick="openModal()">Добавить запись</button>
+        <button class="btn btn-success" data-open-modal="modal">Добавить запись</button>
     </div>
 </div>
 
@@ -27,7 +27,7 @@
     {% endif %}
     
     <div class="filter-bar">
-        <select id="kb-dept-filter" onchange="filterTable()">
+        <select id="kb-dept-filter" data-filter-table>
             <option value="">Все отделы</option>
             {% for dept in departments %}
             <option value="{{ dept.id }}">{{ dept.name }}</option>
@@ -55,7 +55,7 @@
                     <td>{{ kb.answer[:50] }}{% if kb.answer|length > 50 %}...{% endif %}</td>
                     <td>
                         <form method="post" action="/knowledge/{{ kb.id }}/delete"
-                              onsubmit="return confirm('Удалить эту запись?')">
+                              data-confirm="Удалить эту запись?">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <button type="submit" class="btn btn-danger btn-small">Удалить</button>
                         </form>
@@ -78,7 +78,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3>Добавить запись в базу знаний</h3>
-            <button class="close-btn" onclick="closeModal()">&times;</button>
+            <button class="close-btn" data-close-modal="modal">&times;</button>
         </div>
         <form method="POST" action="/knowledge/">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -100,7 +100,7 @@
                 <textarea id="answer" name="answer" rows="5" required 
                           placeholder="Пожалуйста, обратитесь в Жилбыт..."></textarea>
             </div>
-            <button type="submit" class="btn btn-success" style="width: 100%;">Добавить</button>
+            <button type="submit" class="btn btn-success btn-full">Добавить</button>
         </form>
     </div>
 </div>

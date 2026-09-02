@@ -38,7 +38,9 @@ def hash_password(password: str) -> str:
     
     Использует Argon2id если доступен, иначе PBKDF2.
     """
-    # Fallback: PBKDF2
+    if HAS_ARGON2:
+        return _argon2_ph.hash(password)
+
     salt = base64.b64encode(secrets.token_bytes(16)).decode()
     digest = hashlib.pbkdf2_hmac(
         "sha256", password.encode("utf-8"), salt.encode("utf-8"), PBKDF2_ITERATIONS

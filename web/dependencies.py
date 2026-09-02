@@ -13,6 +13,7 @@
 from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.database import async_session_maker
 from core.models import Admin, UserRole, WebRole, WebUser
 import logging
 
@@ -24,14 +25,61 @@ def get_current_user(request: Request) -> dict | None:
     return request.session.get("user")
 
 
-def require_auth(request: Request) -> dict:
-    """Проверка авторизации (редирект на логин, если нет сессии)."""
+async def require_auth(request: Request) -> dict:
+    """Проверить сессию и перечитать актуальные права из БД."""
     user = request.session.get("user")
     if not user:
         raise HTTPException(
             status_code=302, detail="Redirect", headers={"Location": "/auth/login"}
         )
-    return user
+    async with async_session_maker() as session:
+        web_user_id = user.get("web_user_id")
+        if web_user_id is not None:
+            web_user = await session.get(WebUser, web_user_id)
+            if web_user is None or not web_user.is_active:
+                request.session.clear()
+                raise HTTPException(
+                    status_code=302, detail="Session expired",
+                    headers={"Location": "/auth/login"},
+                )
+            canonical = {
+                "username": web_user.username,
+                "role": web_user.role.value,
+                "web_user_id": web_user.id,
+                "department_id": web_user.department_id,
+            }
+            request.session["user"] = canonical
+            return canonical
+
+        # Legacy VK-admin sessions are resolved by their database identity.
+        admin_user_id = user.get("user_id")
+        if admin_user_id is not None:
+            admin = await session.get(Admin, admin_user_id)
+            if admin is None:
+                request.session.clear()
+                raise HTTPException(
+                    status_code=302, detail="Session expired",
+                    headers={"Location": "/auth/login"},
+                )
+            canonical = {
+                **user,
+                "role": (
+                    WebRole.SUPERADMIN.value
+                    if admin.role == UserRole.SUPERADMIN
+                    else WebRole.DEPARTMENT_ADMIN.value
+                ),
+                "department_id": admin.department_id,
+            }
+            request.session["user"] = canonical
+            return canonical
+
+    # Bootstrap sessions have no database identity and are explicitly marked.
+    if role_of(user) == WebRole.SUPERADMIN and user.get("bootstrap"):
+        return user
+    request.session.clear()
+    raise HTTPException(
+        status_code=302, detail="Session expired", headers={"Location": "/auth/login"}
+    )
 
 
 def _normalize_role(role: str | None) -> WebRole | None:
@@ -120,13 +168,11 @@ async def get_admin_scope(session: AsyncSession, user: dict) -> tuple[bool, int 
             admin = await session.get(Admin, admin_user_id)
             if admin:
                 return False, admin.department_id
-        # fallback: используем department_id из сессии с предупреждением
         logger.warning(
-            "DEPARTMENT_ADMIN без web_user_id: department_id из сессии "
-            "(user_id=%s). Рекомендуется создать постоянного пользователя.",
+            "DEPARTMENT_ADMIN без подтверждённой идентичности (user_id=%s)",
             user.get("user_id", "unknown"),
         )
-        return False, user.get("department_id")
+        return False, None
 
     # Обратная совместимость: сессии, созданные до web_users
     admin_user_id = user.get("user_id")

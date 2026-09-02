@@ -1,3 +1,10 @@
+.text-small { font-size: 12px; }
+.grid-full { grid-column: 1 / -1; }
+.is-hidden { display: none; }
+.btn-full { width: 100%; }
+.input-full { width: 100%; }
+.checkbox-label { display: block; margin: 6px 0; }
+.dashboard-note { color: var(--ink-soft); line-height: 1.8; }
 /* ============================================================
    Student Bot Admin — «Тёплая канцелярия»
     Авторская тема: розово-белая рабочая область,

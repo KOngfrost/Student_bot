@@ -250,7 +250,9 @@ async def change_ticket_status(
     """
     async with ticket_transaction() as session:
         ticket = await session.scalar(
-            select(Ticket).where(Ticket.id == ticket_id).with_for_update()
+            select(Ticket)
+            .options(selectinload(Ticket.user), selectinload(Ticket.department))
+            .where(Ticket.id == ticket_id).with_for_update()
         )
         if ticket is None:
             return None
@@ -275,6 +277,12 @@ async def change_ticket_status(
                 ),
             )
         )
+        if not ticket.is_anonymous and ticket.user and ticket.user.vk_id:
+            add_outbox_message(
+                session,
+                ticket.user.vk_id,
+                f"Статус вашей заявки #{ticket.id} изменён: {ticket.status.value}",
+            )
         return ticket
 
 

@@ -2,7 +2,7 @@
 {% block title %}Заявки - Admin Panel{% endblock %}
 
 {% block content %}
-<style>
+<style nonce="{{ request.state.style_nonce|default('') }}">
     .pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; flex-wrap: wrap; }
     .page-link { color: #4f46e5; text-decoration: none; font-weight: 600; padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 8px; }
     .page-link:hover { text-decoration: underline; }
@@ -29,26 +29,25 @@
 
 <div class="card">
     <!-- Фильтры -->
-    <div class="filter-bar">
-        <input type="text" id="search" placeholder="Поиск по теме или описанию..." 
-               onkeyup="filterTable()">
-        <select id="status-filter" onchange="filterTable()">
+    <form class="filter-bar" method="get" action="/tickets/">
+        <input type="text" id="search" name="q" placeholder="Поиск по теме или описанию..."
+               value="{{ query }}">
+        <select id="status-filter" name="status" data-filter-table>
             <option value="">Все статусы</option>
-            <option value="Новое">Новое</option>
-            <option value="В обработке">В обработке</option>
-            <option value="Передано в администрацию СГ">Передано в адм.</option>
-            <option value="Передано в Хозчасть">Передано в хоз.</option>
-            <option value="Выполнено">Выполнено</option>
-            <option value="Выполнено (авто)">Выполнено (авто)</option>
-            <option value="Анонимное">Анонимное</option>
+            {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+            <option value="Выполнено (авто)" {% if selected_status == 'Выполнено (авто)' %}selected{% endif %}>Выполнено (авто)</option>
+            <option value="Анонимное" {% if selected_status == 'Анонимное' %}selected{% endif %}>Анонимное</option>
         </select>
-        <select id="dept-filter" onchange="filterTable()">
+        <select id="dept-filter" name="department_id" data-filter-table>
             <option value="">Все отделы</option>
             {% for dept in departments %}
-            <option value="{{ dept.id }}">{{ dept.name }}</option>
+            <option value="{{ dept.id }}" {% if selected_department == dept.id %}selected{% endif %}>{{ dept.name }}</option>
             {% endfor %}
         </select>
-    </div>
+        <button type="submit" class="btn btn-secondary btn-small">Применить</button>
+    </form>
     
     <div class="table-container">
         <table id="tickets-table">
@@ -95,7 +94,7 @@
                     </td>
                     <td data-label="Дата">{{ ticket.created_at.strftime('%d.%m.%Y') if ticket.created_at else '—' }}</td>
                     <td class="td-actions" data-label="Действия">
-                        <button class="btn btn-secondary btn-small" onclick="openTicket({{ ticket.id }})">
+                        <button class="btn btn-secondary btn-small" data-ticket-id="{{ ticket.id }}">
                             Открыть
                         </button>
                     </td>
@@ -115,11 +114,11 @@
     {% if total_pages > 1 %}
     <div class="pagination">
         {% if current_page > 1 %}
-        <a class="page-link" href="/tickets/?page={{ current_page - 1 }}">← Назад</a>
+        <a class="page-link" href="/tickets/?page={{ current_page - 1 }}&q={{ query|urlencode }}&status={{ selected_status|urlencode }}&department_id={{ selected_department or '' }}">← Назад</a>
         {% endif %}
         <span class="page-info">Страница {{ current_page }} из {{ total_pages }} · заявок: {{ total_tickets }}</span>
         {% if current_page < total_pages %}
-        <a class="page-link" href="/tickets/?page={{ current_page + 1 }}">Вперёд →</a>
+        <a class="page-link" href="/tickets/?page={{ current_page + 1 }}&q={{ query|urlencode }}&status={{ selected_status|urlencode }}&department_id={{ selected_department or '' }}">Вперёд →</a>
         {% endif %}
     </div>
     {% else %}
@@ -132,7 +131,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="modal-title">Заявка #1</h3>
-            <button class="close-btn" onclick="closeTicketModal()">&times;</button>
+            <button class="close-btn" data-close-ticket-modal>&times;</button>
         </div>
         <div id="modal-body">
             <!-- Динамическое содержимое -->
@@ -199,8 +198,8 @@ function openTicket(id) {
                 body += '<form method="post" action="/tickets/' + ticket.id + '/reply" class="detail-form">';
                 body += '<input type="hidden" name="csrf_token" value="' + window.CSRF_FORM_TOKEN + '">';
                 body += '<label><strong>Ответ студенту:</strong></label>';
-                body += '<textarea name="message" rows="3" required style="width:100%;"></textarea>';
-                body += '<label style="display:block;margin:6px 0;"><input type="checkbox" name="complete"> Завершить заявку (уведомить и закрыть)</label>';
+                body += '<textarea name="message" rows="3" required class="input-full"></textarea>';
+                body += '<label class="checkbox-label"><input type="checkbox" name="complete"> Завершить заявку (уведомить и закрыть)</label>';
                 body += '<button type="submit" class="btn btn-primary btn-small">Отправить ответ</button>';
                 body += '</form>';
 
@@ -250,6 +249,11 @@ function closeTicketModal() {
 document.getElementById('ticket-modal').addEventListener('click', function(e) {
     if (e.target === this) closeTicketModal();
 });
+
+document.querySelectorAll('[data-ticket-id]').forEach(function (button) {
+    button.addEventListener('click', function () { openTicket(button.dataset.ticketId); });
+});
+document.querySelector('[data-close-ticket-modal]').addEventListener('click', closeTicketModal);
 
 // Закрытие модалки по Escape
 document.addEventListener('keydown', function(e) {

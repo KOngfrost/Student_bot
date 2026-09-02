@@ -16,7 +16,8 @@ import logging
 
 from core.database import async_session_maker
 from core.models import User, Admin, Department, UserRole
-from web.dependencies import is_superadmin
+from web.dependencies import is_superadmin, require_auth as require_authenticated
+from web.dependencies import require_superadmin as require_superadmin_dependency
 from web.routes.auth import require_crud_rate_limit
 from web.templating import templates
 from web.security.csrf import get_csrf_token
@@ -27,33 +28,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _get_current_admin_user(request: Request) -> dict:
-    """
-    Получить данные текущего админа из сессии.
-    Возвращает user dict с ключами: vk_id, role, department_id и т.д.
-    """
-    user = request.session.get("user")
-    if not user:
-        raise HTTPException(status_code=302, detail="Redirect", headers={"Location": "/auth/login"})
-    return user
+async def require_admin(request: Request) -> dict:
+    """Депенденция для проверки актуальной авторизации админа."""
+    return await require_authenticated(request)
 
 
-def require_admin(request: Request) -> dict:
-    """Депенденция для проверки прав админа."""
-    return _get_current_admin_user(request)
-
-
-def require_superadmin(request: Request) -> dict:
-    """
-    Депенденция для проверки, что текущий пользователь — суперадмин.
-    Только суперадмин может назначать/удалять администраторов.
-    Проверка работает как для ролей web_users (SUPERADMIN), так и для
-    легаси-ролей Admin (superadmin).
-    """
-    user = _get_current_admin_user(request)
-    if not is_superadmin(user):
-        raise HTTPException(status_code=403, detail="Только суперадмин может выполнять это действие")
-    return user
+async def require_superadmin(request: Request) -> dict:
+    return await require_superadmin_dependency(request)
 
 
 @router.get("/")
@@ -172,8 +153,9 @@ async def add_admin(request: Request, user=Depends(require_admin)):
             )
             session.add(new_admin)
             await session.commit()
-    except Exception as e:
-        request.session["error"] = f"Ошибка: {e}"
+    except Exception:
+        logger.exception("Не удалось добавить администратора")
+        request.session["error"] = "Не удалось сохранить изменения. Попробуйте позже."
         return RedirectResponse(url="/admin/admins/", status_code=302)
 
     request.session["success"] = "Администратор успешно добавлен"
@@ -213,8 +195,9 @@ async def delete_admin(request: Request, admin_id: int, user=Depends(require_adm
 
             await session.delete(admin)
             await session.commit()
-    except Exception as e:
-        request.session["error"] = f"Ошибка: {e}"
+    except Exception:
+        logger.exception("Не удалось удалить администратора")
+        request.session["error"] = "Не удалось удалить администратора. Попробуйте позже."
         return RedirectResponse(url="/admin/admins/", status_code=302)
 
     request.session["success"] = "Администратор удалён"

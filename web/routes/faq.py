@@ -15,7 +15,7 @@ import logging
 
 from core.database import async_session_maker
 from core.models import FAQNode, Department
-from web.dependencies import get_admin_scope, require_writer
+from web.dependencies import get_admin_scope, require_auth, require_writer
 from web.templating import templates
 from web.security.middleware import sanitize_html
 
@@ -24,11 +24,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def require_admin(request: Request) -> dict:
-    user = request.session.get("user")
-    if not user:
-        raise HTTPException(status_code=302, detail="Redirect", headers={"Location": "/auth/login"})
-    return user
+require_admin = require_auth
 
 
 @router.get("/")
@@ -111,8 +107,9 @@ async def add_faq(request: Request, user=Depends(require_writer)):
             )
             session.add(faq_node)
             await session.commit()
-    except Exception as e:
-        request.session["error"] = f"Ошибка: {e}"
+    except Exception:
+        logger.exception("Не удалось добавить FAQ")
+        request.session["error"] = "Не удалось сохранить FAQ. Попробуйте позже."
         return RedirectResponse(url="/faq/", status_code=302)
 
     request.session["success"] = "Элемент FAQ добавлен"
@@ -137,8 +134,9 @@ async def delete_faq(request: Request, node_id: int, user=Depends(require_writer
 
             await session.delete(node)
             await session.commit()
-    except Exception as e:
-        request.session["error"] = f"Ошибка: {e}"
+    except Exception:
+        logger.exception("Не удалось удалить FAQ")
+        request.session["error"] = "Не удалось удалить FAQ. Попробуйте позже."
         return RedirectResponse(url="/faq/", status_code=302)
 
     request.session["success"] = "Элемент FAQ удалён"

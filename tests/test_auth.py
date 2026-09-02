@@ -8,7 +8,7 @@ from web.routes.auth import (
     _is_rate_limited,
     _record_failed_attempt,
 )
-from web.security.passwords import hash_password, verify_password
+from web.security.passwords import HAS_ARGON2, hash_password, verify_password
 
 
 class TestPasswords:
@@ -22,9 +22,12 @@ class TestPasswords:
 
     def test_hash_contains_algorithm_and_iterations(self):
         stored = hash_password("test")
-        parts = stored.split("$")
-        assert parts[0] == "pbkdf2_sha256"
-        assert int(parts[1]) >= 100_000
+        if HAS_ARGON2:
+            assert stored.startswith("$argon2id$")
+        else:
+            parts = stored.split("$")
+            assert parts[0] == "pbkdf2_sha256"
+            assert int(parts[1]) >= 100_000
 
     def test_different_hashes_for_same_password(self):
         assert hash_password("same") != hash_password("same")
@@ -101,3 +104,12 @@ class TestSessionHelpers:
         request = MagicMock()
         request.session = {}
         assert get_current_user(request) is None
+
+    async def test_legacy_scope_does_not_trust_session_department(self):
+        from web.dependencies import get_admin_scope
+
+        is_super, department_id = await get_admin_scope(
+            None, {"role": "DEPARTMENT_ADMIN", "department_id": 999}
+        )
+        assert is_super is False
+        assert department_id is None

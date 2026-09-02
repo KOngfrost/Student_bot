@@ -9,7 +9,7 @@
         <div class="page-desc">Кто управляет ботом и какими отделами</div>
     </div>
     <div class="actions">
-        <button class="btn btn-success" onclick="openModal()">Добавить админа</button>
+        <button class="btn btn-success" data-open-modal="modal">Добавить админа</button>
     </div>
 </div>
 
@@ -52,17 +52,17 @@
                 <span class="admin-id">#{{ admin.id }}</span>
                 {% if admin.role.value != 'superadmin' %}
                 <form method="post" action="/admin/admins/{{ admin.id }}/delete"
-                      onsubmit="return confirm('Удалить этого админа?')">
+                              data-confirm="Удалить этого админа?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit" class="btn btn-danger btn-small">Удалить</button>
                 </form>
                 {% else %}
-                <span class="muted" style="font-size: 12px;">Нельзя удалить</span>
+                <span class="muted text-small">Нельзя удалить</span>
                 {% endif %}
             </div>
         </div>
         {% else %}
-        <div class="empty-state" style="grid-column: 1 / -1;">
+        <div class="empty-state grid-full">
             Администраторов пока нет
         </div>
         {% endfor %}
@@ -74,7 +74,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3>Добавить администратора</h3>
-            <button class="close-btn" onclick="closeModal()">&times;</button>
+            <button class="close-btn" data-close-modal="modal">&times;</button>
         </div>
         <form method="POST" action="/admin/admins/">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -104,7 +104,7 @@
                     <option value="superadmin">Суперадмин</option>
                 </select>
             </div>
-            <button type="submit" class="btn btn-success" style="width: 100%;">Добавить</button>
+            <button type="submit" class="btn btn-success btn-full">Добавить</button>
         </form>
     </div>
 </div>

@@ -12,6 +12,7 @@ def build_main_keyboard(has_active_tickets: bool, is_admin: bool = False) -> str
     if has_active_tickets:
         buttons.append(("Мои заявки", "primary"))
     if is_admin:
+        buttons.append(("Заявки администратора", "primary"))
         buttons.append(("Сформировать отчет", "positive"))
         buttons.append(("Отчет по дате", "positive"))
         buttons.append(("Отчет за период", "positive"))

@@ -9,7 +9,7 @@
         <div class="page-desc">Мероприятия и регистрации на них</div>
     </div>
     <div class="actions">
-        <button class="btn btn-success" onclick="openModal()">Создать событие</button>
+        <button class="btn btn-success" data-open-modal="modal">Создать событие</button>
     </div>
 </div>
 
@@ -27,7 +27,7 @@
     {% endif %}
     
     <div class="filter-bar">
-        <select id="event-dept-filter" onchange="filterTable()">
+        <select id="event-dept-filter" data-filter-table>
             <option value="">Все отделы</option>
             {% for dept in departments %}
             <option value="{{ dept.id }}">{{ dept.name }}</option>
@@ -57,7 +57,7 @@
                     <td>{{ event.registrations|length }}</td>
                     <td>
                         <form method="post" action="/events/{{ event.id }}/delete"
-                              onsubmit="return confirm('Удалить это событие?')">
+                              data-confirm="Удалить это событие?">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <button type="submit" class="btn btn-danger btn-small">Удалить</button>
                         </form>
@@ -80,7 +80,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3>Создать событие</h3>
-            <button class="close-btn" onclick="closeModal()">&times;</button>
+            <button class="close-btn" data-close-modal="modal">&times;</button>
         </div>
         <form method="POST" action="/events/">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -104,7 +104,7 @@
                 <label for="event_date">Дата и время</label>
                 <input type="datetime-local" id="event_date" name="event_date" required>
             </div>
-            <button type="submit" class="btn btn-success" style="width: 100%;">Создать</button>
+            <button type="submit" class="btn btn-success btn-full">Создать</button>
         </form>
     </div>
 </div>

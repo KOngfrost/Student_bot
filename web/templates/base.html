@@ -63,9 +63,25 @@
             };
         })();
     </script>
-    {% block extra_js %}{% endblock %}
     </head>
 <body>
     {% block content %}{% endblock %}
 </body>
+{% block extra_js %}{% endblock %}
+<script nonce="{{ request.state.script_nonce|default('') }}">
+document.addEventListener('click', function (event) {
+    var open = event.target.closest('[data-open-modal]');
+    var close = event.target.closest('[data-close-modal]');
+    if (open) document.getElementById(open.dataset.openModal).classList.add('active');
+    if (close) document.getElementById(close.dataset.closeModal).classList.remove('active');
+});
+document.addEventListener('change', function (event) {
+    if (event.target.matches('[data-filter-table]') && typeof window.filterTable === 'function') window.filterTable();
+    if (event.target.matches('[data-toggle-answer]') && typeof window.toggleAnswer === 'function') window.toggleAnswer();
+});
+document.addEventListener('submit', function (event) {
+    var message = event.target.dataset.confirm;
+    if (message && !window.confirm(message)) event.preventDefault();
+});
+</script>
 </html>

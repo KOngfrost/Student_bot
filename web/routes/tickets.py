@@ -12,7 +12,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session_maker
@@ -46,6 +46,9 @@ async def tickets_page(
     request: Request,
     page: int = 1,
     page_size: int = 25,
+    q: str = "",
+    status: str = "",
+    department_id: int | None = None,
     user: dict = Depends(require_auth),
 ):
     """Страница заявок с IDOR-защитой и пагинацией."""
@@ -62,12 +65,21 @@ async def tickets_page(
         async with async_session_maker() as session:
             is_super, dept_id = await get_admin_scope(session, user)
 
-            # Общее количество (для пагинации)
-            from sqlalchemy import func
-
             count_stmt = select(func.count(Ticket.id))
+            filters = []
             if not is_super:
-                count_stmt = count_stmt.where(Ticket.department_id == dept_id)
+                filters.append(Ticket.department_id == dept_id)
+            elif department_id is not None:
+                filters.append(Ticket.department_id == department_id)
+            if q.strip():
+                pattern = f"%{q.strip()}%"
+                filters.append(or_(Ticket.topic.ilike(pattern), Ticket.description.ilike(pattern)))
+            if status:
+                try:
+                    filters.append(Ticket.status == TicketStatus(status))
+                except ValueError:
+                    status = ""
+            count_stmt = count_stmt.where(*filters)
             total = (await session.scalar(count_stmt)) or 0
 
             stmt = (
@@ -77,11 +89,13 @@ async def tickets_page(
                 .offset(offset)
                 .limit(page_size)
             )
-            if not is_super:
-                stmt = stmt.where(Ticket.department_id == dept_id)
+            stmt = stmt.where(*filters)
             tickets = (await session.scalars(stmt)).all()
 
-            departments = (await session.scalars(select(Department))).all()
+            departments_stmt = select(Department)
+            if not is_super:
+                departments_stmt = departments_stmt.where(Department.id == dept_id)
+            departments = (await session.scalars(departments_stmt)).all()
     except Exception as e:
         db_error = True
         logger.error("Не удалось загрузить заявки: %s", e)
@@ -105,6 +119,9 @@ async def tickets_page(
             "total_pages": total_pages,
             "total_tickets": total,
             "page_size": page_size,
+            "query": q,
+            "selected_status": status,
+            "selected_department": department_id,
         },
     )
 

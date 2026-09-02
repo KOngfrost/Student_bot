@@ -9,7 +9,7 @@
         <div class="page-desc">Вопросы и ответы, по которым бот ведёт диалог</div>
     </div>
     <div class="actions">
-        <button class="btn btn-success" onclick="openModal()">Добавить вопрос</button>
+        <button class="btn btn-success" data-open-modal="modal">Добавить вопрос</button>
     </div>
 </div>
 
@@ -27,7 +27,7 @@
     {% endif %}
     
     <div class="filter-bar">
-        <select id="faq-dept-filter" onchange="filterTable()">
+        <select id="faq-dept-filter" data-filter-table>
             <option value="">Все отделы</option>
             {% for dept in departments %}
             <option value="{{ dept.id }}">{{ dept.name }}</option>
@@ -63,7 +63,7 @@
                     </td>
                     <td>
                         <form method="post" action="/faq/{{ node.id }}/delete"
-                              onsubmit="return confirm('Удалить этот элемент?')">
+                              data-confirm="Удалить этот элемент?">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <button type="submit" class="btn btn-danger btn-small">Удалить</button>
                         </form>
@@ -86,7 +86,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3>Добавить элемент FAQ</h3>
-            <button class="close-btn" onclick="closeModal()">&times;</button>
+            <button class="close-btn" data-close-modal="modal">&times;</button>
         </div>
         <form method="POST" action="/faq/">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -115,15 +115,15 @@
             </div>
             <div class="form-group">
                 <label>
-                    <input type="checkbox" id="is_final" name="is_final" onchange="toggleAnswer()">
+                    <input type="checkbox" id="is_final" name="is_final" data-toggle-answer>
                     Это конечный элемент (с ответом)
                 </label>
             </div>
-            <div class="form-group" id="answer-group" style="display: none;">
+            <div class="form-group is-hidden" id="answer-group">
                 <label for="final_answer">Ответ</label>
                 <textarea id="final_answer" name="final_answer" rows="5"></textarea>
             </div>
-            <button type="submit" class="btn btn-success" style="width: 100%;">Добавить</button>
+            <button type="submit" class="btn btn-success btn-full">Добавить</button>
         </form>
     </div>
 </div>

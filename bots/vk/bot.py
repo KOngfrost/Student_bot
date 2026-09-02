@@ -4,6 +4,9 @@ import json
 import logging
 import re
 
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
 from core.vk_compat import patch_vkbottle_logging
 
 patch_vkbottle_logging()
@@ -14,14 +17,19 @@ from vkbottle.dispatch.rules.base import RegexRule
 from vkbottle.exception_factory.base_exceptions import VKAPIError
 from core.config import settings
 from core.bot_core import BotCore
+from core.database import async_session_maker
 from core.heartbeat import touch_heartbeat
+from core.models import Admin, Ticket, TicketStatus, User, UserRole
 from core.reporting import _fetch_report_data, build_daily_report, get_report_for_date, get_report_for_period, parse_report_date, send_report_to_vk
 from core.ticket_service import (
+    StatusTransitionError,
+    change_ticket_status,
     create_anonymous_ticket,
     format_ticket_details,
     format_ticket_list,
     get_ticket_messages,
     get_user_tickets,
+    reply_to_ticket,
 )
 from bots.vk.keyboards import build_main_keyboard, build_tickets_keyboard
 
@@ -265,6 +273,82 @@ async def admin_panel(message: Message):
         "Нажми «Сформировать отчет», чтобы получить файл в VK.",
         keyboard=build_main_keyboard(False, True),
     )
+
+
+async def _admin_ticket_scope(vk_id: int) -> tuple[bool, set[int]]:
+    if BotCore.is_admin_vk_id(vk_id):
+        return True, set()
+    async with async_session_maker() as session:
+        admin = await session.scalar(
+            select(Admin).join(User, Admin.user_id == User.id).where(User.vk_id == vk_id)
+        )
+        if admin is None:
+            return False, set()
+        return admin.role == UserRole.SUPERADMIN, {admin.department_id}
+
+
+@vk_bot.on.private_message(text=["Заявки администратора", "заявки администратора"])
+async def admin_tickets_handler(message: Message):
+    """Показать оператору заявки, доступные его отделу."""
+    is_super, departments = await _admin_ticket_scope(message.from_id)
+    if not is_super and not departments:
+        await message.answer("У вас нет доступа к заявкам администратора.")
+        return
+    async with async_session_maker() as session:
+        stmt = (
+            select(Ticket).options(selectinload(Ticket.department))
+            .order_by(Ticket.created_at.desc()).limit(20)
+        )
+        if not is_super:
+            stmt = stmt.where(Ticket.department_id.in_(departments))
+        tickets = list((await session.scalars(stmt)).all())
+    if not tickets:
+        await message.answer("Доступных заявок нет.", keyboard=build_main_keyboard(False, True))
+        return
+    lines = ["Заявки (последние 20):"]
+    for ticket in tickets:
+        lines.append(f"#{ticket.id} [{ticket.status.value}] {ticket.topic or 'Без темы'}")
+    lines.append("\nОтвет: Ответ #12: текст ответа")
+    lines.append("Статус: Статус #12: В обработке")
+    await message.answer("\n".join(lines), keyboard=build_main_keyboard(False, True))
+
+
+async def _operator_can_access(vk_id: int, ticket_id: int) -> bool:
+    is_super, departments = await _admin_ticket_scope(vk_id)
+    if is_super:
+        return True
+    async with async_session_maker() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        return ticket is not None and ticket.department_id in departments
+
+
+@vk_bot.on.private_message(RegexRule(r"^Ответ #\d+: .+"))
+async def admin_reply_handler(message: Message):
+    match = re.match(r"^Ответ #(\d+):\s*(.+)$", message.text or "", re.DOTALL)
+    if not match or not await _operator_can_access(message.from_id, int(match.group(1))):
+        await message.answer("Заявка не найдена или недоступна.")
+        return
+    ticket_id, text = int(match.group(1)), match.group(2).strip()
+    ticket, delivered = await reply_to_ticket(ticket_id, str(message.from_id), text)
+    if ticket is None:
+        await message.answer("Заявка не найдена.")
+        return
+    await message.answer("Ответ сохранён." + (" Уведомление поставлено в очередь VK." if delivered else ""))
+
+
+@vk_bot.on.private_message(RegexRule(r"^Статус #\d+: .+"))
+async def admin_status_handler(message: Message):
+    match = re.match(r"^Статус #(\d+):\s*(.+)$", message.text or "", re.DOTALL)
+    if not match or not await _operator_can_access(message.from_id, int(match.group(1))):
+        await message.answer("Заявка не найдена или недоступна.")
+        return
+    try:
+        new_status = TicketStatus(match.group(2).strip())
+        ticket = await change_ticket_status(int(match.group(1)), new_status, str(message.from_id))
+    except (ValueError, StatusTransitionError):
+        await message.answer("Неизвестный статус или недопустимый переход.")
+        return
+    await message.answer("Статус заявки изменён." if ticket else "Заявка не найдена.")
 
 
 @vk_bot.on.private_message(text=["Сформировать отчет", "Сформировать отчет"])

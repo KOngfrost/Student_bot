@@ -15,7 +15,7 @@ import logging
 
 from core.database import async_session_maker
 from core.models import KnowledgeBase, Department
-from web.dependencies import get_admin_scope, require_writer
+from web.dependencies import get_admin_scope, require_auth, require_writer
 from web.templating import templates
 from web.security.middleware import sanitize_html
 
@@ -24,15 +24,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def require_admin(request: Request) -> dict:
-    user = request.session.get("user")
-    if not user:
-        raise HTTPException(status_code=302, detail="Redirect", headers={"Location": "/auth/login"})
-    return user
-
-
 @router.get("/")
-async def knowledge_base_page(request: Request, user=Depends(require_admin)):
+async def knowledge_base_page(request: Request, user=Depends(require_auth)):
     """Страница базы знаний с IDOR-защитой."""
     from web.security.csrf import get_csrf_token
 
@@ -112,8 +105,9 @@ async def add_knowledge_base(request: Request, user=Depends(require_writer)):
             )
             session.add(kb)
             await session.commit()
-    except Exception as e:
-        request.session["error"] = f"Ошибка: {e}"
+    except Exception:
+        logger.exception("Не удалось добавить запись в базу знаний")
+        request.session["error"] = "Не удалось сохранить запись. Попробуйте позже."
         return RedirectResponse(url="/knowledge/", status_code=302)
 
     request.session["success"] = "Запись добавлена в базу знаний"
@@ -139,8 +133,9 @@ async def delete_knowledge_base(request: Request, kb_id: int, user=Depends(requi
 
             await session.delete(kb)
             await session.commit()
-    except Exception as e:
-        request.session["error"] = f"Ошибка: {e}"
+    except Exception:
+        logger.exception("Не удалось удалить запись базы знаний")
+        request.session["error"] = "Не удалось удалить запись. Попробуйте позже."
         return RedirectResponse(url="/knowledge/", status_code=302)
 
     request.session["success"] = "Запись удалена"

@@ -16,7 +16,7 @@ import logging
 
 from core.database import async_session_maker
 from core.models import Event, Department
-from web.dependencies import get_admin_scope, require_writer
+from web.dependencies import get_admin_scope, require_auth, require_writer
 from web.templating import templates
 from web.security.middleware import sanitize_html
 
@@ -25,11 +25,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def require_admin(request: Request) -> dict:
-    user = request.session.get("user")
-    if not user:
-        raise HTTPException(status_code=302, detail="Redirect", headers={"Location": "/auth/login"})
-    return user
+require_admin = require_auth
 
 
 @router.get("/")
@@ -113,8 +109,9 @@ async def add_event(request: Request, user=Depends(require_writer)):
             )
             session.add(event)
             await session.commit()
-    except Exception as e:
-        request.session["error"] = f"Ошибка: {e}"
+    except Exception:
+        logger.exception("Не удалось создать событие")
+        request.session["error"] = "Не удалось сохранить событие. Попробуйте позже."
         return RedirectResponse(url="/events/", status_code=302)
 
     request.session["success"] = "Событие создано"
@@ -140,8 +137,9 @@ async def delete_event(request: Request, event_id: int, user=Depends(require_wri
 
             await session.delete(event)
             await session.commit()
-    except Exception as e:
-        request.session["error"] = f"Ошибка: {e}"
+    except Exception:
+        logger.exception("Не удалось удалить событие")
+        request.session["error"] = "Не удалось удалить событие. Попробуйте позже."
         return RedirectResponse(url="/events/", status_code=302)
 
     request.session["success"] = "Событие удалено"

@@ -16,7 +16,7 @@ import logging
 
 from core.database import async_session_maker
 from core.models import Admin, Log
-from web.dependencies import get_admin_scope
+from web.dependencies import get_admin_scope, require_auth
 from web.templating import templates
 from web.security.middleware import escape_for_csv, sanitize_csv_field
 
@@ -27,11 +27,7 @@ router = APIRouter()
 LOGS_PER_PAGE = 100  # Пагинация: 100 записей на страницу
 
 
-def require_admin(request: Request) -> dict:
-    user = request.session.get("user")
-    if not user:
-        raise HTTPException(status_code=302, detail="Redirect", headers={"Location": "/auth/login"})
-    return user
+require_admin = require_auth
 
 
 @router.get("/")
