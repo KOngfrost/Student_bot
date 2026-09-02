@@ -17,11 +17,20 @@ class Settings:
         return self.APP_ENV not in self.dev_environments
 
     # Database
-    DB_USER = os.getenv("POSTGRES_USER", os.getenv("DB_USER", "student_bot"))
-    DB_PASS = os.getenv("POSTGRES_PASSWORD", os.getenv("DB_PASS", "student_bot"))
+    # В production дефолтные значения запрещены — ensure_production_config()
+    # поднимет ошибку, если они не переопределены явно в .env.
+    DB_USER = os.getenv("POSTGRES_USER", os.getenv("DB_USER", ""))
+    DB_PASS = os.getenv("POSTGRES_PASSWORD", os.getenv("DB_PASS", ""))
     DB_NAME = os.getenv("POSTGRES_DB", os.getenv("DB_NAME", "student_bot"))
     DB_HOST = os.getenv("DB_HOST", "db")
     DB_PORT = os.getenv("DB_PORT", "5432")
+    # Собираем URL только если все обязательные поля заданы (dev-режим)
+    _db_user = quote_plus(DB_USER) if DB_USER else ""
+    _db_pass = quote_plus(DB_PASS) if DB_PASS else ""
+    database_url = (
+        f"postgresql+asyncpg://{_db_user}:{_db_pass}"
+        f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    ) if DB_USER and DB_PASS else ""
     database_url = (
         f"postgresql+asyncpg://{quote_plus(DB_USER)}:{quote_plus(DB_PASS)}"
         f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -93,15 +102,17 @@ class Settings:
         """Жёсткие проверки конфигурации для production (запуск прерывается)."""
         if not self.IS_PRODUCTION:
             return
-        if self.DB_PASS == "student_bot":
-            raise RuntimeError(
-                "APP_ENV=production, но POSTGRES_PASSWORD не задан явно "
-                "(дефолт 'student_bot' запрещён в production). Укажите пароль в .env."
-            )
-        if self.DB_USER == "student_bot":
+        if not self.DB_USER or self.DB_USER == "student_bot":
             raise RuntimeError(
                 "APP_ENV=production, но POSTGRES_USER не задан явно "
-                "(дефолт 'student_bot' запрещён в production)."
+                "(пустой или дефолт 'student_bot' запрещён в production). "
+                "Укажите пароль в .env."
+            )
+        if not self.DB_PASS or self.DB_PASS == "student_bot":
+            raise RuntimeError(
+                "APP_ENV=production, но POSTGRES_PASSWORD не задан явно "
+                "(пустой или дефолт 'student_bot' запрещён в production). "
+                "Укажите пароль в .env."
             )
         if not self.SESSION_SECRET_KEY or len(self.SESSION_SECRET_KEY) < 32:
             raise RuntimeError(

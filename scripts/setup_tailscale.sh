@@ -8,8 +8,9 @@
 #   2. Ждёт, пока tailscale-контейнер получит MagicDNS-имя и IP.
 #   3. Включает HTTPS для веб-панели:
 #      docker compose ... exec tailscale tailscale serve --bg https / http://127.0.0.1:8000
-#   4. Печатает URL: https://student-bot-panel.<tailnet>/ — кука Secure работает
-#      (SESSION_HTTPS_ONLY=true), ведь идёт по HTTPS.
+#   4. Устанавливает SESSION_HTTPS_ONLY=true в .env (Secure-cookie работает с HTTPS)
+#   5. Перезапускает контейнеры для применения SESSION_HTTPS_ONLY=true
+#   6. Печатает URL: https://student-bot-panel.<tailnet>/ — кука Secure работает
 #
 # Требования:
 #   - TAILSCALE_AUTH_KEY в .env (https://login.tailscale.com/admin/settings/keys)
@@ -26,11 +27,26 @@ COMPOSE=(docker compose -f "${PROJECT_DIR}/docker-compose.yml" -f "${PROJECT_DIR
 
 cd "$PROJECT_DIR"
 
+if [ ! -f .env ]; then
+    echo "❌ .env не найден. Скопируйте .env.example в .env и заполните переменные." >&2
+    exit 1
+fi
+
 if ! grep -q '^TAILSCALE_AUTH_KEY=' .env 2>/dev/null; then
     echo "❌ TAILSCALE_AUTH_KEY не задан в .env. Получите ключ: https://login.tailscale.com/admin/settings/keys" >&2
     exit 1
 fi
 
+# Автоматически устанавливаем SESSION_HTTPS_ONLY=true для HTTPS через Tailscale
+if grep -q '^SESSION_HTTPS_ONLY=' .env 2>/dev/null; then
+    sed -i 's/^SESSION_HTTPS_ONLY=.*/SESSION_HTTPS_ONLY=true/' .env
+    echo "✅ SESSION_HTTPS_ONLY установлен в true (Secure-cookie для HTTPS)"
+else
+    echo "SESSION_HTTPS_ONLY=true" >> .env
+    echo "✅ SESSION_HTTPS_ONLY=true добавлен в .env"
+fi
+
+echo ""
 echo "▶ Запускаем стек с Tailscale..."
 "${COMPOSE[@]}" up -d
 
@@ -46,19 +62,24 @@ for i in $(seq 1 30); do
     fi
 done
 
-MAGIC_NAME="$("${COMPOSE[@]}" exec -T tailscale tailscale status --json | python3 -c "import json,sys; d=json.load(sys.stdin); self=d.get('Self'); print(self.get('DNSName','').rstrip('.') if self else '')" 2>/dev/null || true)"
+MAGIC_NAME="$("${COMPOSE[@]}" exec -T tailscale tailscale status --json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); self=d.get('Self'); print(self.get('DNSName','').rstrip('.') if self else '')" 2>/dev/null || true)"
 if [ -z "$MAGIC_NAME" ]; then
-    MAGIC_NAME="student-bot-panel" # fallback: имя хоста
+    MAGIC_NAME="student-bot-panel"
 fi
 
 echo "▶ Включаем HTTPS для панели (tailscale serve)..."
 "${COMPOSE[@]}" exec -T tailscale tailscale serve --bg https / http://127.0.0.1:8000
 
-URL="https://${MAGIC_NAME}"
+echo "▶ Перезапускаем контейнеры для применения SESSION_HTTPS_ONLY=true..."
+"${COMPOSE[@]}" up -d --force-recreate web-admin
+
 echo ""
 echo "✅ Готово! Панель доступна внутри tailnet по адресу:"
-echo "   ${URL}"
+echo "   https://${MAGIC_NAME}"
 echo ""
-echo "⚠️  Важно: в .env установите SESSION_HTTPS_ONLY=true,"
-echo "     чтобы session-cookie помечалась Secure и работала по HTTPS."
-echo "     (команда перезапуска: docker compose restart web-admin)"
+echo "📋 Полезные команды:"
+echo "   docker compose -f docker-compose.yml -f docker-compose.tailscale.override.yml --profile tailscale up -d"
+echo "   docker compose exec student_bot_tailscale tailscale status"
+echo "   docker compose exec student_bot_tailscale tailscale serve --help"
+echo ""
+echo "🔥 Firewall: открыть только 22/tcp. Порты 5432 и 8000 наружу НЕ открывать."

@@ -48,6 +48,25 @@ docker compose exec bot python scripts/init_superadmin.py --vk-id 123456789 --na
 docker compose exec bot python scripts/create_web_user.py --username admin --role SUPERADMIN
 ```
 
+### 🔐 Доступ к веб-панели через Tailscale
+
+Для безопасного доступа к панели используйте Tailscale с HTTPS:
+
+```bash
+chmod +x scripts/setup_tailscale.sh
+./scripts/setup_tailscale.sh
+```
+
+Скрипт автоматически:
+- Поднимает контейнеры с Tailscale-профилем;
+- Настраивает `SESSION_HTTPS_ONLY=true`;
+- Включает HTTPS через `tailscale serve`;
+- Перезапускает контейнеры.
+
+Панель доступна по адресу: `https://student-bot-panel.<ваш-tailnet>`
+
+Полная инструкция: [DEPLOYMENT.md#6-доступ-к-панели-tailscale-рекомендуется](DEPLOYMENT.md#6-доступ-к-панели-tailscale-рекомендуется)
+
 ---
 
 ## 📐 Архитектура
@@ -79,7 +98,8 @@ student_bot/
 │   ├── ticket_service.py       # Сервис заявок: история, ответы, статусы, VK-уведомления
 │   ├── reporting.py            # Excel-отчёты, планировщик, защита от дублей (report_runs)
 │   ├── bot_core.py             # Пользователи, права, журналирование
-│   └── heartbeat.py            # Heartbeat бота для healthcheck
+│   ├── heartbeat.py            # Heartbeat бота для healthcheck
+│   └── outbox.py               # Надёжная доставка VK-уведомлений (at-least-once)
 ├── bots/vk/
 │   ├── bot.py                  # Обработчики VK (включая «Мои заявки», «Подробнее #N»)
 │   └── keyboards.py            # Клавиатуры VK
@@ -95,10 +115,13 @@ student_bot/
 │   ├── healthcheck_bot.py      # Docker healthcheck бота (heartbeat)
 │   ├── backup.sh               # Ежедневный pg_dump с ротацией
 │   ├── restore.sh              # Восстановление из копии
-│   └── check_db.py             # Проверка подключения к БД
+│   ├── check_db.py             # Проверка подключения к БД
+│   └── setup_tailscale.sh      # Автоматическая настройка Tailscale с HTTPS
 ├── tests/                      # pytest (config, models, tickets, auth, reports, faq, security)
 ├── docker-compose.yml          # db + migrate + bot + web-admin (+ tailscale-профиль)
 ├── docker-compose.tailscale.override.yml
+├── Dockerfile                  # Бот (appuser)
+├── Dockerfile.web              # Веб-панель (appuser)
 └── .env.example
 ```
 
@@ -161,7 +184,7 @@ NEW → IN_PROGRESS → TRANSFERRED_ADMIN / TRANSFERRED_HOUSEKEEPING → COMPLET
 | Clickjacking / XSS | `X-Frame-Options: DENY`, CSP, санитизация ввода |
 | Секрет сессии | Без `SESSION_SECRET_KEY` панель не запускается |
 | Схема БД | Только Alembic (migrate-контейнер), приложение не создаёт базу в production |
-| Панель в интернете | Порт только на `127.0.0.1`; доступ через SSH-туннель или Tailscale |
+| Панель в интернете | Tailscale с HTTPS — панель доступна только внутри tailnet, порт в интернет не публикуется |
 
 ---
 

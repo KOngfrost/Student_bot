@@ -94,16 +94,27 @@ docker compose exec bot python scripts/create_web_user.py \
 
 ## 6. Доступ к панели: Tailscale (рекомендуется)
 
-Панель **не публикуется в интернет**: порт привязан к `127.0.0.1:8000`. Варианты доступа:
+Панель **не публикуется в интернет**: порт привязан к `127.0.0.1:8000`.
 
-**Вариант А — SSH-туннель** (без дополнительной настройки):
+**Настройка Tailscale с HTTPS (автоматически):**
 
 ```bash
-ssh -L 8000:127.0.0.1:8000 user@server
-# затем открыть http://localhost:8000
+chmod +x scripts/setup_tailscale.sh
+./scripts/setup_tailscale.sh
 ```
 
-**Вариант Б — Tailscale** (доступ из приватной сети, без публикации портов):
+Скрипт:
+1. Поднимает контейнеры с профилем `tailscale`;
+2. Настраивает `SESSION_HTTPS_ONLY=true` для Secure-cookie;
+3. Включает HTTPS через `tailscale serve`;
+4. Перезапускает контейнеры.
+
+Панель доступна внутри tailnet по адресу:
+```
+https://student-bot-panel.<ваш-tailnet>
+```
+
+**Ручная настройка Tailscale:**
 
 1. Auth key: https://login.tailscale.com/admin/settings/keys
 2. Впишите `TAILSCALE_AUTH_KEY=...` в `.env`
@@ -114,7 +125,18 @@ docker compose -f docker-compose.yml -f docker-compose.tailscale.override.yml \
     --profile tailscale up -d
 ```
 
-Панель доступна внутри tailnet по адресу `http://student-bot-panel:8000`. Порт в интернет при этом не публикуется вообще.
+4. Включите HTTPS:
+
+```bash
+docker compose exec student_bot_tailscale \
+    tailscale serve --bg https / http://127.0.0.1:8000
+```
+
+5. Установите `SESSION_HTTPS_ONLY=true` в `.env` и перезапустите:
+
+```bash
+docker compose up -d --force-recreate web-admin
+```
 
 **Firewall сервера:** открыть только `22/tcp`. Порты 5432 (PostgreSQL) и 8000 (панель) наружу не открывать.
 

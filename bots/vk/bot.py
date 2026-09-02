@@ -182,11 +182,11 @@ async def report_handler(message: Message):
         )
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт {filename}")
     except (ValueError, OSError, KeyError, VKAPIError) as error:
-        logger.exception("Ошибка при формировании отчёта: %s", error)
+        logger.exception("Ошибка при формировании отчёта")
         await BotCore.log_action(user, "report_failed", "Ошибка при формировании отчёта")
         await message.answer(
             "Не удалось сформировать отчёт. Попробуйте ещё раз позже или обратитесь "
-            "к администратору. Детали уже записаны в журнал."
+            "к администратору."
         )
         return
     await message.answer("Отчет сформирован и отправлен.")
@@ -300,4 +300,12 @@ async def report_by_period_input(message: Message):
 
 
 if __name__ == "__main__":
+    # Глобальный перехватчик ошибок: ни одна ошибка не должна
+    # попасть в виде traceback в сообщение пользователю.
+    @vk_bot.exception_handler()
+    async def handle_all_errors(error: Exception):
+        logger.exception("Необработанная ошибка в боте", exc_info=error)
+        # Пользователю — безопасное сообщение без деталей
+        return {"error": "Произошла внутренняя ошибка. Пожалуйста, попробуйте позже."}
+
     vk_bot.run()
