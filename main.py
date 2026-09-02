@@ -48,7 +48,7 @@ async def _start_scheduler() -> None:
         return
     _scheduler_started = True
 
-    start_report_scheduler(vk_bot.api, settings.VK_REPORT_ADMIN_ID)
+    start_report_scheduler(vk_bot.api)
     logger.info("Планировщик отчётов запущен")
 
     # Outbox: доставка VK-уведомлений, записанных в ту же транзакцию,

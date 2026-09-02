@@ -10,7 +10,7 @@
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 import logging
 
@@ -168,8 +168,8 @@ async def delete_admin(request: Request, admin_id: int, user=Depends(require_adm
 
     Безопасность:
     - Rate limiting: не более 20 запросов на IP за 5 минут
-    - Только суперадмин может удалять обычных админов
-    - Нельзя удалить самого себя и суперадмина
+    - Только суперадмин может удалять администраторов
+    - Нельзя удалить самого себя или последнего суперадмина
     """
     require_crud_rate_limit(request)
     if not is_superadmin(user):
@@ -183,15 +183,18 @@ async def delete_admin(request: Request, admin_id: int, user=Depends(require_adm
                 request.session["error"] = "Администратор не найден"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
-            # Нельзя удалить суперадмина
-            if admin.role == UserRole.SUPERADMIN:
-                request.session["error"] = "Нельзя удалить суперадмина"
-                return RedirectResponse(url="/admin/admins/", status_code=302)
-
             # Нельзя удалить самого себя (для legacy-админов с user_id в сессии)
             if user.get("user_id") == admin.id:
                 request.session["error"] = "Нельзя удалить себя"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
+
+            if admin.role == UserRole.SUPERADMIN:
+                superadmin_count = await session.scalar(
+                    select(func.count(Admin.id)).where(Admin.role == UserRole.SUPERADMIN)
+                )
+                if superadmin_count <= 1:
+                    request.session["error"] = "Нельзя удалить последнего суперадмина"
+                    return RedirectResponse(url="/admin/admins/", status_code=302)
 
             await session.delete(admin)
             await session.commit()

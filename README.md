@@ -16,6 +16,9 @@ curl -s http://localhost:8000/health
 
 Ожидаемый ответ healthcheck: `{"status":"ok"}`. Миграции запускаются одноразовым сервисом `migrate` до бота и панели.
 
+В production веб-панель используется только через Tailscale по адресу
+`https://имя-вашей-машины.имя-вашей-сети.ts.net/t` (tailnet: `имя-вашей-сети.ts.net/`).
+
 Для локального запуска без Docker:
 
 ```bash
@@ -57,5 +60,6 @@ pytest -v
 
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Docker, Tailscale, backup, обновление и диагностика.
 - [docs/WEB_ADMIN_GUIDE.md](docs/WEB_ADMIN_GUIDE.md) — ежедневная работа в панели.
+- [docs/ADMIN_AND_DATABASE_GUIDE.md](docs/ADMIN_AND_DATABASE_GUIDE.md) — таблицы, роли и управление администраторами.
 - [web/README.md](web/README.md) — устройство web-модуля и security-контракт.
 - [TECHNICAL_SPEC.md](TECHNICAL_SPEC.md) — техническое задание, документ не изменялся.

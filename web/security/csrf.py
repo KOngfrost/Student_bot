@@ -18,6 +18,7 @@ from typing import Optional
 
 from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 
 CSRF_SESSION_KEY = "csrf_token"
@@ -42,15 +43,15 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             submitted = await self._extract_token(request)
 
             if not token_from_session or not submitted:
-                raise HTTPException(
+                return JSONResponse(
                     status_code=403,
-                    detail="Отсутствует CSRF-токен. Обновите страницу и повторите.",
+                    content={"detail": "Отсутствует CSRF-токен. Обновите страницу и повторите."},
                 )
 
             if not secrets.compare_digest(submitted, token_from_session):
-                raise HTTPException(
+                return JSONResponse(
                     status_code=403,
-                    detail="Недействительный CSRF-токен",
+                    content={"detail": "Недействительный CSRF-токен"},
                 )
 
             response = await call_next(request)

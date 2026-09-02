@@ -8,15 +8,8 @@ def build_main_keyboard(is_admin: bool = False) -> str:
         ("Информ", "primary"),
         ("Корпоративный", "primary"),
         ("Задать вопрос", "secondary"),
-        ("Анонимное обращение", "secondary"),
     ]
     buttons.append(("Мои заявки", "primary"))
-    if is_admin:
-        buttons.append(("Заявки администратора", "primary"))
-        buttons.append(("Сформировать отчет", "positive"))
-        buttons.append(("Отчет по дате", "positive"))
-        buttons.append(("Отчет за период", "positive"))
-
     keyboard = {
         "one_time": False,
         "buttons": [

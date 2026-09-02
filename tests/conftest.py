@@ -8,6 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Секрет обязателен для импорта web.main
 os.environ.setdefault("SESSION_SECRET_KEY", "test_secret_key_for_tests_1234567890")
+# Тесты не должны зависеть от production-настроек локального .env.
+os.environ["APP_ENV"] = "development"
+os.environ["SESSION_HTTPS_ONLY"] = "false"
 
 import pytest_asyncio  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402

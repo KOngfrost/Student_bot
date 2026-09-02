@@ -1,4 +1,5 @@
 $ErrorActionPreference = "Stop"
+$tailscaleUrl = "https://student-bot-panel.tail5d7c2e.ts.net"
 
 $projectDir = Split-Path -Parent $PSScriptRoot
 $compose = @(
@@ -32,11 +33,13 @@ try {
     if (-not $ready) { throw "Tailscale не стал активным за 60 секунд. Выполните: docker compose logs tailscale" }
 
     Write-Host "Включаем HTTPS для панели..."
-    docker @compose exec -T tailscale tailscale serve --bg https / http://localhost:8000
+    docker @compose exec -T tailscale tailscale serve --bg http://localhost:8000
 
     $status = (docker @compose exec -T tailscale tailscale status --json | Out-String) | ConvertFrom-Json
-    $magicName = $status.Self.DNSName.TrimEnd('.')
-    Write-Host "Готово. Панель доступна внутри tailnet: https://$magicName/"
+    if ($status.Self.DNSName.TrimEnd('.') -ne "student-bot-panel.tail5d7c2e.ts.net") {
+        throw "Tailscale зарегистрировал другой DNS name: $($status.Self.DNSName). Проверьте hostname tail5d7c2e и настройки tailnet."
+    }
+    Write-Host "Готово. Панель доступна внутри tailnet: $tailscaleUrl/"
 }
 finally {
     Pop-Location

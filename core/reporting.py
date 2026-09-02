@@ -17,7 +17,7 @@ from vkbottle.tools.uploader import DocMessagesUploader
 
 from core.config import settings
 from core.database import async_session_maker
-from core.models import Department, ReportRun, Ticket, TicketStatus
+from core.models import Admin, Department, ReportRun, Ticket, TicketStatus, User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +285,18 @@ async def send_report_to_vk(api, admin_vk_id: int, report_bytes: bytes, filename
         title=filename,
     )
 
+
+async def get_superadmin_vk_ids() -> list[int]:
+    """Возвращает VK ID всех суперадминистраторов с доступным VK ID."""
+    async with async_session_maker() as session:
+        result = await session.scalars(
+            select(User.vk_id)
+            .join(Admin, Admin.user_id == User.id)
+            .where(Admin.role == UserRole.SUPERADMIN, User.vk_id.is_not(None))
+            .distinct()
+        )
+        return [vk_id for vk_id in result if vk_id is not None]
+
     await api.messages.send(
         peer_id=admin_vk_id,
         random_id=random.randint(1, 2**31 - 1),
@@ -384,8 +396,8 @@ async def mark_report_sent(report_day: date, status: str = "sent") -> None:
         await session.commit()
 
 
-async def _run_report(api, admin_vk_id: int, report_date: datetime) -> None:
-    """Сформировать и отправить отчёт за дату (VK + email) с защитой от повторов."""
+async def _run_report(api, admin_vk_ids: list[int], report_date: datetime) -> None:
+    """Сформировать и отправить ежедневный отчет всем суперадминам и по email."""
     report_day = report_date.date()
 
     if await is_report_already_sent(report_day):
@@ -399,16 +411,16 @@ async def _run_report(api, admin_vk_id: int, report_date: datetime) -> None:
     # Отправка в VK — отдельный try/except
     vk_failed = False
     email_configured = bool(settings.SMTP_HOST and settings.REPORT_EMAILS)
-    delivery_configured = bool(admin_vk_id or email_configured)
+    delivery_configured = bool(admin_vk_ids or email_configured)
     if not delivery_configured:
         logger.error("Отчёт не отправлен: не настроен ни один канал доставки")
         return
 
-    if admin_vk_id:
+    for admin_vk_id in admin_vk_ids:
         try:
             await send_report_to_vk(api, admin_vk_id, report_bytes, filename)
         except Exception:
-            logger.exception("Не удалось отправить отчёт в VK")
+            logger.exception("Не удалось отправить отчёт в VK администратору %s", admin_vk_id)
             vk_failed = True
 
     # Отправка по email — отдельный try/except
@@ -425,7 +437,7 @@ async def _run_report(api, admin_vk_id: int, report_date: datetime) -> None:
         logger.info("Ежедневный отчёт за %s отправлен", report_day)
 
 
-async def _report_loop(api, admin_vk_id: int) -> None:
+async def _report_loop(api) -> None:
     tz = get_app_tz()
     while True:
         try:
@@ -433,13 +445,13 @@ async def _report_loop(api, admin_vk_id: int) -> None:
 
             # Отчёт за вчера по часовому поясу приложения
             report_date = datetime.now(tz) - timedelta(days=1)
-            await _run_report(api, admin_vk_id, report_date)
+            await _run_report(api, await get_superadmin_vk_ids(), report_date)
         except Exception:
             logger.exception("Не удалось отправить ежедневный отчёт")
             await asyncio.sleep(60)
 
 
-def start_report_scheduler(api, admin_vk_id: int) -> asyncio.Task:
+def start_report_scheduler(api) -> asyncio.Task:
     """Запускает asyncio-планировщик ежедневных отчётов."""
     task = asyncio.create_task(_report_loop(api, admin_vk_id))
     return task

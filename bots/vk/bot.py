@@ -444,7 +444,7 @@ async def report_handler(message: Message):
         filename = f"report_{report_date:%Y-%m-%d}.xlsx"
         await send_report_to_vk(
             vk_bot.api,
-            settings.VK_REPORT_ADMIN_ID,
+            message.from_id,
             report_bytes,
             filename,
         )
@@ -488,7 +488,7 @@ async def report_by_date_input(message: Message):
         filename = f"report_{parsed:%Y-%m-%d}.xlsx"
         await send_report_to_vk(
             vk_bot.api,
-            settings.VK_REPORT_ADMIN_ID,
+            message.from_id,
             report_bytes,
             filename,
         )
@@ -551,7 +551,7 @@ async def report_by_period_input(message: Message):
         filename = f"report_{date_from:%Y-%m-%d}_to_{date_to:%Y-%m-%d}.xlsx"
         await send_report_to_vk(
             vk_bot.api,
-            settings.VK_REPORT_ADMIN_ID,
+            message.from_id,
             report_bytes,
             filename,
         )

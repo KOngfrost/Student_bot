@@ -6,7 +6,7 @@
 #    --profile tailscale up -d && затем включить tailscale serve)
 #
 # Панель доступна ТОЛЬКО внутри вашей tailnet-сети по адресу:
-#   https://student-bot-panel.<ваш-tailnet>   (HTTPS через tailscale serve)
+#   https://student-bot-panel.tail5d7c2e.ts.net   (HTTPS через tailscale serve)
 # Наружу (в интернет) панель не публикуется вообще.
 #
 # Требуется Docker Compose >= 2.24 (тег !reset) и TAILSCALE_AUTH_KEY в .env.

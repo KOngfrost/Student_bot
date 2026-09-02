@@ -92,6 +92,7 @@ services:
       - TS_AUTHKEY=${TAILSCALE_AUTH_KEY:?TAILSCALE_AUTH_KEY is required for tailscale profile}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
+      - TS_HOSTNAME=student-bot-panel
     volumes:
       - tailscale_state:/var/lib/tailscale
     healthcheck:

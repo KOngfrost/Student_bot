@@ -7,10 +7,10 @@
 #        --profile tailscale up -d
 #   2. Ждёт, пока tailscale-контейнер получит MagicDNS-имя и IP.
 #   3. Включает HTTPS для веб-панели:
-#      docker compose ... exec tailscale tailscale serve --bg https / http://localhost:8000
+#      docker compose ... exec tailscale tailscale serve --bg http://localhost:8000
 #   4. Устанавливает SESSION_HTTPS_ONLY=true в .env (Secure-cookie работает с HTTPS)
 #   5. Перезапускает контейнеры для применения SESSION_HTTPS_ONLY=true
-#   6. Печатает URL: https://student-bot-panel.<tailnet>/ — кука Secure работает
+#   6. Печатает URL: https://student-bot-panel.tail5d7c2e.ts.net/ — кука Secure работает
 #
 # Требования:
 #   - TAILSCALE_AUTH_KEY в .env (https://login.tailscale.com/admin/settings/keys)
@@ -20,7 +20,6 @@
 #   ./scripts/setup_tailscale.sh
 #
 set -euo pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 COMPOSE=(docker compose -f "${PROJECT_DIR}/docker-compose.yml" -f "${PROJECT_DIR}/docker-compose.tailscale.override.yml" --profile tailscale)
@@ -64,11 +63,16 @@ done
 
 MAGIC_NAME="$("${COMPOSE[@]}" exec -T tailscale tailscale status --json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); self=d.get('Self'); print(self.get('DNSName','').rstrip('.') if self else '')" 2>/dev/null || true)"
 if [ -z "$MAGIC_NAME" ]; then
-    MAGIC_NAME="student-bot-panel"
+    MAGIC_NAME="student-bot-panel.tail5d7c2e.ts.net"
+fi
+
+if [ "$MAGIC_NAME" != "student-bot-panel.tail5d7c2e.ts.net" ]; then
+    echo "❌ Tailscale зарегистрировал другой DNS name: $MAGIC_NAME" >&2
+    exit 1
 fi
 
 echo "▶ Включаем HTTPS для панели (tailscale serve)..."
-"${COMPOSE[@]}" exec -T tailscale tailscale serve --bg https / http://localhost:8000
+"${COMPOSE[@]}" exec -T tailscale tailscale serve --bg http://localhost:8000
 
 echo "▶ Перезапускаем контейнеры для применения SESSION_HTTPS_ONLY=true..."
 "${COMPOSE[@]}" up -d --force-recreate web-admin

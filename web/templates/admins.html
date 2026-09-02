@@ -50,15 +50,11 @@
             </div>
             <div class="admin-card-footer">
                 <span class="admin-id">#{{ admin.id }}</span>
-                {% if admin.role.value != 'superadmin' %}
                 <form method="post" action="/admin/admins/{{ admin.id }}/delete"
                               data-confirm="Удалить этого админа?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit" class="btn btn-danger btn-small">Удалить</button>
                 </form>
-                {% else %}
-                <span class="muted text-small">Нельзя удалить</span>
-                {% endif %}
             </div>
         </div>
         {% else %}

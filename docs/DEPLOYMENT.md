@@ -5,7 +5,7 @@
 - Ubuntu 22.04/24.04 или совместимый Linux-сервер
 - Docker Engine и Docker Compose v2.24+
 - VK community token с включённым Long Poll API
-- Закрытый SSH-доступ; порт PostgreSQL наружу не открывать
+- Доступ к панели через Tailscale; порты PostgreSQL и web наружу не открывать
 
 ## Запуск
 
@@ -16,7 +16,7 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Заполните `.env`: `POSTGRES_*`, `VK_BOT_TOKEN`, `ADMIN_VK_IDS`, `VK_REPORT_ADMIN_ID`, `SESSION_SECRET_KEY`, `REPORT_TIME` и `APP_TIMEZONE`. Секрет сессии создайте так:
+Заполните `.env`: `POSTGRES_*`, `VK_BOT_TOKEN`, `ADMIN_VK_IDS`, `SESSION_SECRET_KEY`, `REPORT_TIME`, `APP_TIMEZONE` и `TAILSCALE_AUTH_KEY`. Ручной отчет отправляется нажавшему администратору, ежедневный — всем VK-суперадминам из таблицы `admins`. Секрет сессии создайте так:
 
 ```bash
 python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
@@ -36,15 +36,51 @@ curl -s http://localhost:8000/health
 
 ## Доступ к панели
 
-Порт панели привязан к `localhost:8000`. Для удалённого доступа рекомендуется Tailscale:
+Панель доступна только через Tailscale по адресу
+`https://имя-вашей-машины.имя-вашей-сети.ts.net/` в tailnet `имя-вашей-сети.ts.net`.
+
+На Windows PowerShell:
+
+```powershell
+Set-ExecutionPolicy -Scope Process RemoteSigned
+.\scripts\setup_tailscale.ps1
+```
+
+На Linux:
 
 ```bash
 chmod +x scripts/setup_tailscale.sh
 ./scripts/setup_tailscale.sh
 ```
 
-В Windows PowerShell запустите `scripts/setup_tailscale.ps1`. Скрипт поднимает
-профиль, ждет подключения Tailscale и включает `tailscale serve` для HTTPS.
+Оба скрипта поднимают профиль, регистрируют узел с именем `student-bot-panel`, ждут
+подключения и включают `tailscale serve` для HTTPS.
+
+Ошибка `register request` означает, что контейнер не смог зарегистрироваться в
+control plane. Проверьте интернет/DNS внутри Docker и срок действия ключа:
+
+```bash
+docker compose logs --tail 200 tailscale
+docker compose exec tailscale tailscale status
+docker compose exec tailscale tailscale netcheck
+```
+
+Если ключ просрочен или отозван, создайте новый auth key в Tailscale Admin
+Console, замените `TAILSCALE_AUTH_KEY` в `.env`, затем пересоздайте профиль:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tailscale.override.yml --profile tailscale down
+docker compose -f docker-compose.yml -f docker-compose.tailscale.override.yml --profile tailscale up -d
+```
+
+После регистрации проверьте публикацию:
+
+```bash
+docker compose exec tailscale tailscale serve status
+curl -vk https://имя-вашей-машины.имя-вашей-сети.ts.net/health
+```
+
+URL работает только с устройства, подключенного к той же tailnet.
 
 Скрипт включает HTTPS и `SESSION_HTTPS_ONLY=true`. Не публикуйте 5432 и 8000 в интернет; на firewall оставьте SSH и доступ Tailscale.
 
