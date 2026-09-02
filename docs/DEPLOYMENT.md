@@ -29,14 +29,14 @@ docker compose up -d --build
 docker compose ps
 docker compose logs --tail 100 migrate
 docker compose logs --tail 100 bot web-admin
-curl -s http://127.0.0.1:8000/health
+curl -s http://localhost:8000/health
 ```
 
 Приложение не создаёт схему в production. Изменения БД проходят только через `migrate`/Alembic.
 
 ## Доступ к панели
 
-Порт панели привязан к `127.0.0.1:8000`. Для удалённого доступа рекомендуется Tailscale:
+Порт панели привязан к `localhost:8000`. Для удалённого доступа рекомендуется Tailscale:
 
 ```bash
 chmod +x scripts/setup_tailscale.sh

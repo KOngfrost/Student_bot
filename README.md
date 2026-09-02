@@ -11,7 +11,7 @@ Student Bot принимает обращения студентов через 
 ```bash
 docker compose up -d --build
 docker compose ps
-curl -s http://127.0.0.1:8000/health
+curl -s http://localhost:8000/health
 ```
 
 Ожидаемый ответ healthcheck: `{"status":"ok"}`. Миграции запускаются одноразовым сервисом `migrate` до бота и панели.

@@ -12,7 +12,7 @@ services:
     # Порт наружу не публикуем: доступ только с самого сервера
     # (при необходимости: docker compose exec db psql ...)
     ports:
-      - "127.0.0.1:5433:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -70,7 +70,7 @@ services:
     # Панель доступна только с самого сервера (SSH-туннель).
     # Для доступа через Tailscale см. docker-compose.tailscale.override.yml
     ports:
-      - "127.0.0.1:8000:8000"
+      - "8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

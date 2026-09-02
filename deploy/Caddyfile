@@ -6,11 +6,11 @@
 #   - SESSION_HTTPS_ONLY=true в .env веб-панели (кука Secure).
 #   - TRUSTED_PROXIES=172.17.0.1 (или подсеть, с которой Caddy проксирует)
 #     в .env веб-панели — для корректного IP клиента в rate-limit.
-#   - Панель в docker-compose.yml слушает 127.0.0.1:8000 на хосте.
+#   - Панель в docker-compose.yml слушает localhost:8000 на хосте.
 
 # Замените на ваш реальный домен (DNS должен указывать на сервер)
 panel.example.com {
-    reverse_proxy 127.0.0.1:8000
+    reverse_proxy localhost:8000
 
     # Передача реального IP клиента (белый список — сам Caddy)
     header_up X-Forwarded-For {remote_host}

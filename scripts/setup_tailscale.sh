@@ -7,7 +7,7 @@
 #        --profile tailscale up -d
 #   2. Ждёт, пока tailscale-контейнер получит MagicDNS-имя и IP.
 #   3. Включает HTTPS для веб-панели:
-#      docker compose ... exec tailscale tailscale serve --bg https / http://127.0.0.1:8000
+#      docker compose ... exec tailscale tailscale serve --bg https / http://localhost:8000
 #   4. Устанавливает SESSION_HTTPS_ONLY=true в .env (Secure-cookie работает с HTTPS)
 #   5. Перезапускает контейнеры для применения SESSION_HTTPS_ONLY=true
 #   6. Печатает URL: https://student-bot-panel.<tailnet>/ — кука Secure работает
@@ -68,7 +68,7 @@ if [ -z "$MAGIC_NAME" ]; then
 fi
 
 echo "▶ Включаем HTTPS для панели (tailscale serve)..."
-"${COMPOSE[@]}" exec -T tailscale tailscale serve --bg https / http://127.0.0.1:8000
+"${COMPOSE[@]}" exec -T tailscale tailscale serve --bg https / http://localhost:8000
 
 echo "▶ Перезапускаем контейнеры для применения SESSION_HTTPS_ONLY=true..."
 "${COMPOSE[@]}" up -d --force-recreate web-admin
