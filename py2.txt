@@ -1,0 +1,64 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.6, pytest-8.2.0, pluggy-1.6.0 -- C:\Users\Yenotick\Desktop\student_bot\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Yenotick\Desktop\student_bot
+configfile: pytest.ini
+plugins: anyio-4.14.2, asyncio-0.23.7
+asyncio: mode=Mode.AUTO
+collecting ... collected 23 items
+
+tests/test_outbox.py::test_deliver_marks_sent_on_success PASSED          [  4%]
+tests/test_outbox.py::test_deliver_retries_and_marks_failed PASSED       [  8%]
+tests/test_outbox.py::test_reply_to_ticket_writes_outbox_in_same_tx PASSED [ 13%]
+tests/test_outbox.py::test_reply_anonymous_ticket_no_outbox PASSED       [ 17%]
+tests/test_vk_client.py::test_send_vk_message_zero_peer_returns_false PASSED [ 21%]
+tests/test_vk_client.py::test_send_vk_message_no_token_returns_false PASSED [ 26%]
+tests/test_vk_client.py::test_send_vk_message_success_posts_to_api PASSED [ 30%]
+tests/test_vk_client.py::test_send_vk_message_api_error_returns_false PASSED [ 34%]
+tests/test_vk_client.py::test_send_vk_message_http_error_returns_false FAILED [ 39%]
+
+================================== FAILURES ===================================
+________________ test_send_vk_message_http_error_returns_false ________________
+
+    async def test_send_vk_message_http_error_returns_false():
+        """Исключение HTTP — неудача без проброса."""
+        fake_client = AsyncMock()
+        fake_client.post.side_effect = RuntimeError("network down")
+        fake_client.__aenter__.return_value = fake_client
+        fake_client.__aexit__.return_value = False
+    
+        with patch("core.vk_client.httpx.AsyncClient", return_value=fake_client):
+>           ok = await send_vk_message(111, "text")
+
+tests\test_vk_client.py:69: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+core\vk_client.py:40: in send_vk_message
+    response = await client.post(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <AsyncMock name='mock.post' id='2791874155856'>
+args = ('https://api.vk.com/method/messages.send',)
+kwargs = {'data': {'access_token': '[REDACTED_VK_TOKEN]', 'message': 'text', 'peer_id': 111, 'random_id': 1721511290, ...}}
+_call = call('https://api.vk.com/method/messages.send', data={'access_token': '[REDACTED_VK_TOKEN]', 'v': '5.199', 'peer_id': 111, 'random_id': 1721511290, 'message': 'text'})
+effect = RuntimeError('network down')
+
+    async def _execute_mock_call(self, /, *args, **kwargs):
+        # This is nearly just like super(), except for special handling
+        # of coroutines
+    
+        _call = _Call((args, kwargs), two=True)
+        self.await_count += 1
+        self.await_args = _call
+        self.await_args_list.append(_call)
+    
+        effect = self.side_effect
+        if effect is not None:
+            if _is_exception(effect):
+>               raise effect
+E               RuntimeError: network down
+
+..\..\AppData\Local\Programs\Python\Python314\Lib\unittest\mock.py:2333: RuntimeError
+=========================== short test summary info ===========================
+FAILED tests/test_vk_client.py::test_send_vk_message_http_error_returns_false
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
+========================= 1 failed, 8 passed in 0.58s =========================

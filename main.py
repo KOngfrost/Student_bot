@@ -30,9 +30,15 @@ def initialize_database() -> None:
 
 
 async def _start_scheduler() -> None:
-    """Запускает asyncio-планировщик отчётов и heartbeat в event loop бота."""
+    """Запускает asyncio-планировщик отчётов, outbox-воркер и heartbeat."""
     start_report_scheduler(vk_bot.api, settings.VK_REPORT_ADMIN_ID)
     logger.info("Планировщик отчётов запущен")
+
+    # Outbox: доставка VK-уведомлений, записанных в ту же транзакцию,
+    # что и изменения заявок (см. core/outbox.py).
+    from core.outbox import outbox_worker_loop
+
+    asyncio.create_task(outbox_worker_loop())
 
     # Периодическое обновление heartbeat для docker healthcheck
     async def _heartbeat_loop() -> None:
@@ -66,6 +72,7 @@ def run_vk_polling() -> None:
 
 def run() -> None:
     try:
+        settings.ensure_production_config()
         initialize_database()
         run_vk_polling()
     except VKAPIError as error:

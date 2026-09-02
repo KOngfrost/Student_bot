@@ -1,0 +1,32 @@
+tests\test_outbox.py:3:8: F401 [*] `pytest` imported but unused
+  |
+1 | """Тесты outbox-доставки VK-уведомлений (надёжность «ответ в VK после commit»)."""
+2 | 
+3 | import pytest
+  |        ^^^^^^ F401
+4 | from sqlalchemy import select
+  |
+  = help: Remove unused import: `pytest`
+
+tests\test_outbox.py:120:9: F841 Local variable `count` is assigned to but never used
+    |
+119 |     async with db_session_maker() as session:
+120 |         count = (
+    |         ^^^^^ F841
+121 |             await session.scalar(select(VkOutbox).where(VkOutbox.vk_id.is_(None)))
+122 |         )
+    |
+    = help: Remove assignment to unused variable `count`
+
+web\main.py:12:8: F401 [*] `os` imported but unused
+   |
+10 | """
+11 | 
+12 | import os
+   |        ^^ F401
+13 | import logging
+   |
+   = help: Remove unused import: `os`
+
+Found 3 errors.
+[*] 2 fixable with the `--fix` option (1 hidden fix can be enabled with the `--unsafe-fixes` option).

@@ -16,16 +16,16 @@
 import logging
 import secrets
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 
 from core.config import settings
-from core.database import async_session_maker
-from core.models import Log, WebRole, WebUser
-from core.ticket_service import send_vk_message
+from core import database as core_db
+from core.models import Log, LoginAttempt, WebRole, WebUser
+from core.vk_client import send_vk_message
 from web.security.csrf import get_csrf_token
 from web.security.passwords import verify_password
 from web.templating import templates
@@ -39,11 +39,14 @@ CREDENTIALS_NOT_SET = (
     "или задайте WEB_ADMIN_USERNAME и WEB_ADMIN_PASSWORD в .env"
 )
 
-# Rate limiting: 5 неудачных попыток за 15 минут на IP
+# Rate limiting: 5 неудачных попыток за 15 минут на IP.
+# Первичное хранилище — таблица login_attempts (PostgreSQL): лимит переживает
+# рестарты панели и работает одинаково при нескольких экземплярах.
+# _LOGIN_ATTEMPTS остаётся как in-memory mirror (совместимость; fallback,
+# если БД временно недоступна).
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW_SECONDS = 15 * 60
 
-# _LOGIN_ATTEMPTS[ip] = [timestamp неудачных попыток]
 _LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 
 
@@ -51,40 +54,87 @@ def _credentials_configured() -> bool:
     return bool(settings.WEB_ADMIN_USERNAME and settings.WEB_ADMIN_PASSWORD)
 
 
-def _is_rate_limited(ip: str) -> bool:
-    """Превышен ли лимит неудачных попыток входа для IP."""
+def _get_client_ip(request: Request) -> str:
+    """Получить реальный IP клиента.
+
+    Заголовок X-Forwarded-For принимается ТОЛЬКО от доверенных прокси
+    (settings.TRUSTED_PROXIES). При прямой публикации панели (без reverse proxy)
+    подделка заголовка больше не позволяет обойти rate-limit.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    if client_ip in settings.TRUSTED_PROXIES:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return client_ip
+
+
+async def _db_recent_failed_count(ip: str) -> int:
+    """Сколько неудачных попыток за окно в базе. -1 — БД недоступна."""
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=_LOGIN_WINDOW_SECONDS)
+        async with core_db.async_session_maker() as session:
+            count = await session.scalar(
+                select(func.count(LoginAttempt.id)).where(
+                    LoginAttempt.ip == ip,
+                    LoginAttempt.success.is_(False),
+                    LoginAttempt.attempted_at >= cutoff,
+                )
+            )
+            return int(count or 0)
+    except Exception:
+        logger.warning("Rate-limit: БД недоступна, использую in-memory mirror")
+        return -1
+
+
+def _memory_window(ip: str) -> list[float]:
+    """Очистить и вернуть окно неудачных попыток из in-memory mirror."""
     now = time.time()
     window_start = now - _LOGIN_WINDOW_SECONDS
     attempts = [t for t in _LOGIN_ATTEMPTS.get(ip, []) if t > window_start]
     _LOGIN_ATTEMPTS[ip] = attempts
-    return len(attempts) >= _LOGIN_MAX_ATTEMPTS
+    return attempts
 
 
-def _record_failed_attempt(ip: str) -> None:
-    """Зафиксировать неудачную попытку входа."""
+async def _is_rate_limited(ip: str) -> bool:
+    """Превышен ли лимит неудачных попыток входа для IP (БД + mirror)."""
+    db_count = await _db_recent_failed_count(ip)
+    if db_count >= 0:
+        return db_count >= _LOGIN_MAX_ATTEMPTS
+    return len(_memory_window(ip)) >= _LOGIN_MAX_ATTEMPTS
+
+
+async def _record_failed_attempt(ip: str) -> None:
+    """Зафиксировать неудачную попытку входа (в БД и в mirror)."""
     now = time.time()
     window_start = now - _LOGIN_WINDOW_SECONDS
     attempts = [t for t in _LOGIN_ATTEMPTS.get(ip, []) if t > window_start]
     attempts.append(now)
     _LOGIN_ATTEMPTS[ip] = attempts
 
+    try:
+        async with core_db.async_session_maker() as session:
+            session.add(LoginAttempt(ip=ip, success=False))
+            await session.commit()
+    except Exception:
+        logger.warning("Rate-limit: не удалось записать попытку входа в БД")
 
-def _clear_attempts(ip: str) -> None:
+
+async def _clear_attempts(ip: str) -> None:
+    """Сбросить лимит после успешного входа (БД + mirror)."""
     _LOGIN_ATTEMPTS.pop(ip, None)
-
-
-def _get_client_ip(request: Request) -> str:
-    """Получить реальный IP клиента (за reverse-proxy — из X-Forwarded-For)."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    try:
+        async with core_db.async_session_maker() as session:
+            await session.execute(delete(LoginAttempt).where(LoginAttempt.ip == ip))
+            await session.commit()
+    except Exception:
+        logger.warning("Rate-limit: не удалось очистить попытки в БД")
 
 
 async def _log_action(action: str, details: str) -> None:
     """Записать событие входа в журнал (таблица logs)."""
     try:
-        async with async_session_maker() as session:
+        async with core_db.async_session_maker() as session:
             session.add(Log(user_id=None, action=action, details=details))
             await session.commit()
     except Exception:
@@ -104,7 +154,7 @@ async def _notify_superadmin(details: str) -> None:
 async def _authenticate(username: str, password: str) -> dict | None:
     """Аутентифицировать пользователя: сначала web_users, затем .env-bootstrap."""
     try:
-        async with async_session_maker() as session:
+        async with core_db.async_session_maker() as session:
             web_user = await session.scalar(
                 select(WebUser).where(WebUser.username == username)
             )
@@ -164,7 +214,7 @@ async def login(request: Request):
     username = str(form.get("username", ""))
     password = str(form.get("password", ""))
 
-    if _is_rate_limited(client_ip):
+    if await _is_rate_limited(client_ip):
         details = f"Блокировка IP {client_ip}: превышен лимит попыток входа (username={username!r})"
         await _log_action("web_login_blocked", details)
         await _notify_superadmin(details)
@@ -180,7 +230,7 @@ async def login(request: Request):
     user_data = await _authenticate(username, password)
 
     if user_data is None:
-        _record_failed_attempt(client_ip)
+        await _record_failed_attempt(client_ip)
         await _log_action(
             "web_login_failed",
             f"Неудачный вход с IP {client_ip} (username={username!r})",
@@ -192,7 +242,7 @@ async def login(request: Request):
             status_code=401,
         )
 
-    _clear_attempts(client_ip)
+    await _clear_attempts(client_ip)
     request.session["user"] = user_data
     request.session["csrf_token"] = secrets.token_urlsafe(32)
     await _log_action(

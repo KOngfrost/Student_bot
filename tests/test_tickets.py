@@ -130,3 +130,37 @@ async def test_get_user_tickets_excludes_completed(db_session_maker):
     tickets = await get_user_tickets(333, include_completed=False)
     assert len(tickets) == 1
     assert tickets[0].topic == "Активная"
+
+
+async def test_get_user_tickets_pagination(db_session_maker):
+    """Пагинация: limit/offset работают и не нарушают порядок (новые сверху)."""
+    from core.ticket_service import get_user_tickets
+    from sqlalchemy import select
+
+    async with db_session_maker() as session:
+        user = User(vk_id=444)
+        session.add(user)
+        await session.commit()
+        db_user = await session.scalar(select(User).where(User.vk_id == 444))
+
+        for i in range(7):
+            session.add(
+                Ticket(
+                    user_id=db_user.id,
+                    topic=f"Заявка {i}",
+                    created_at=__import__("datetime").datetime(2026, 9, 1, 10, i),
+                )
+            )
+        await session.commit()
+
+    first_page = await get_user_tickets(444, include_completed=True, limit=3, offset=0)
+    second_page = await get_user_tickets(444, include_completed=True, limit=3, offset=3)
+
+    assert len(first_page) == 3
+    assert len(second_page) == 3
+    # Второй набор не пересекается с первым по теме
+    topics1 = {t.topic for t in first_page}
+    topics2 = {t.topic for t in second_page}
+    assert topics1.isdisjoint(topics2)
+    # Новые сверху: на первой странице номера (по created_at) выше
+    assert first_page[0].created_at >= first_page[1].created_at

@@ -37,21 +37,22 @@ class TestPasswords:
 
 
 class TestRateLimiting:
-    def setup_method(self):
-        _clear_attempts("1.2.3.4")
+    async def test_not_limited_initially(self, db_session_maker):
+        assert await _is_rate_limited("1.2.3.4") is False
 
-    def teardown_method(self):
-        _clear_attempts("1.2.3.4")
-
-    def test_not_limited_initially(self):
-        assert _is_rate_limited("1.2.3.4") is False
-
-    def test_limited_after_five_failures(self):
+    async def test_limited_after_five_failures(self, db_session_maker):
         for _ in range(5):
-            _record_failed_attempt("1.2.3.4")
-        assert _is_rate_limited("1.2.3.4") is True
+            await _record_failed_attempt("1.2.3.4")
+        assert await _is_rate_limited("1.2.3.4") is True
 
-    def test_window_is_15_minutes(self):
+    async def test_clear_attempts_resets_limit(self, db_session_maker):
+        for _ in range(5):
+            await _record_failed_attempt("1.2.3.4")
+        assert await _is_rate_limited("1.2.3.4") is True
+        await _clear_attempts("1.2.3.4")
+        assert await _is_rate_limited("1.2.3.4") is False
+
+    async def test_window_is_15_minutes(self):
         from web.routes.auth import _LOGIN_MAX_ATTEMPTS, _LOGIN_WINDOW_SECONDS
 
         assert _LOGIN_MAX_ATTEMPTS == 5

@@ -15,7 +15,8 @@ from datetime import datetime, timezone
 import logging
 
 from core.database import async_session_maker
-from core.models import Event, Department, Admin, UserRole
+from core.models import Event, Department
+from web.dependencies import is_superadmin, require_writer
 from web.templating import templates
 from web.security.middleware import sanitize_html
 
@@ -45,10 +46,8 @@ async def events_page(request: Request, user=Depends(require_admin)):
             depts_result = await session.execute(select(Department))
             departments = depts_result.scalars().all()
 
-            admin_user_id = user.get("user_id")
-            current_admin = await session.get(Admin, admin_user_id) if admin_user_id else None
-            is_super = current_admin and current_admin.role == UserRole.SUPERADMIN
-            dept_id = current_admin.department_id if current_admin else None
+            is_super = is_superadmin(user)
+            dept_id = user.get("department_id")
 
             if is_super:
                 events_result = await session.execute(
@@ -87,7 +86,7 @@ async def events_page(request: Request, user=Depends(require_admin)):
 
 
 @router.post("/")
-async def add_event(request: Request, user=Depends(require_admin)):
+async def add_event(request: Request, user=Depends(require_writer)):
     """Создание события с санитизацией входных данных."""
     form = await request.form()
     department_id = int(form.get("department_id", 0))
@@ -118,7 +117,7 @@ async def add_event(request: Request, user=Depends(require_admin)):
 
 
 @router.post("/{event_id}/delete")
-async def delete_event(request: Request, event_id: int, user=Depends(require_admin)):
+async def delete_event(request: Request, event_id: int, user=Depends(require_writer)):
     """Удаление события (POST с CSRF-токеном) с проверкой прав."""
     try:
         async with async_session_maker() as session:
@@ -128,10 +127,8 @@ async def delete_event(request: Request, event_id: int, user=Depends(require_adm
                 return RedirectResponse(url="/events/", status_code=302)
 
             # Проверяем права
-            admin_user_id = user.get("user_id")
-            current_admin = await session.get(Admin, admin_user_id) if admin_user_id else None
-            is_super = current_admin and current_admin.role == UserRole.SUPERADMIN
-            dept_id = current_admin.department_id if current_admin else None
+            is_super = is_superadmin(user)
+            dept_id = user.get("department_id")
 
             if not is_super and event.department_id != dept_id:
                 request.session["error"] = "Нет прав для удаления этого события"

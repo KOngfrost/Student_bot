@@ -2,10 +2,17 @@
 CSRF-защита для FastAPI-приложения.
 
 Генерирует и проверяет CSRF-токены через сессию.
-Токен хранится в сессии и передаётся в скрытом поле формы.
-При POST-запросе токен из формы сравнивается с токеном из сессии.
+Токен хранится в сессии и передаётся одним из способов:
+- скрытое поле формы `csrf_token`;
+- заголовок `x-csrf-token`;
+- поле `csrf_token` в JSON-теле (для API-запросов).
+
+Проверка выполняется для ВСЕХ изменяющих методов (POST/PUT/PATCH/DELETE),
+включая /auth/login (защита от login-CSRF). JSON-запросы больше НЕ
+пропускаются без токена — раньше это была дыра в защите.
 """
 
+import json
 import secrets
 from typing import Optional
 
@@ -19,7 +26,7 @@ CSRF_FORM_FIELD = "csrf_token"
 
 
 class CSRFMiddleware(BaseHTTPMiddleware):
-    """Middleware для генерации CSRF-токена и проверки POST-запросов."""
+    """Middleware для генерации CSRF-токена и проверки изменяющих запросов."""
 
     async def dispatch(self, request: Request, call_next):
         # GET/HEAD/OPTIONS — генерируем токен, если его нет в сессии
@@ -29,56 +36,22 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             return response
 
-        # POST/PUT/DELETE/PATCH — проверяем токен
+        # POST/PUT/DELETE/PATCH — токен обязателен и должен совпадать с сессией
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
-            # Исключаем публичные маршруты от проверки CSRF
-            public_paths = ["/auth/login"]
-            if any(request.url.path.startswith(p) for p in public_paths):
-                response = await call_next(request)
-                return response
-
-            # Пытаемся получить токен из заголовка или формы
-            token_from_header = request.headers.get(CSRF_HEADER_NAME)
-            token_from_form = None
             token_from_session: Optional[str] = request.session.get(CSRF_SESSION_KEY)
+            submitted = await self._extract_token(request)
 
-            if not token_from_header and token_from_session:
-                # Пытаемся получить форму, только если токен не в заголовке
-                try:
-                    form = await request.form()
-                    token_from_form = form.get(CSRF_FORM_FIELD)
-                except Exception:
-                    # Если форма не доступна (JSON-запрос и т.п.),
-                    # пропускаем проверку — CSRF не требуется для API
-                    pass
+            if not token_from_session or not submitted:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Отсутствует CSRF-токен. Обновите страницу и повторите.",
+                )
 
-            if token_from_header and token_from_session:
-                if not secrets.compare_digest(token_from_header, token_from_session):
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Недействительный CSRF-токен",
-                    )
-            elif token_from_form and token_from_session:
-                if not secrets.compare_digest(token_from_form, token_from_session):
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Недействительный CSRF-токен",
-                    )
-            else:
-                # Если токен отсутствует — для POST-форм это 403
-                # Для JSON-API запросов (без формы) — пропускаем
-                if token_from_form is None and token_from_header is None:
-                    # Проверяем, является ли запрос формой или JSON
-                    content_type = request.headers.get("content-type", "")
-                    if "application/json" in content_type:
-                        # JSON-запросы без CSRF — пропускаем
-                        pass
-                    else:
-                        # Форма без токена — 403
-                        raise HTTPException(
-                            status_code=403,
-                            detail="Отсутствует CSRF-токен. Обновите страницу и повторите.",
-                        )
+            if not secrets.compare_digest(submitted, token_from_session):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Недействительный CSRF-токен",
+                )
 
             response = await call_next(request)
             return response
@@ -86,6 +59,71 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         # Другие методы — пропускаем
         response = await call_next(request)
         return response
+
+    async def _extract_token(self, request: Request) -> str | None:
+        """Взять токен из заголовка, формы или JSON-тела (не расходуя body)."""
+        header_token = request.headers.get(CSRF_HEADER_NAME)
+        if header_token:
+            return header_token
+
+        content_type = request.headers.get("content-type", "").lower()
+
+        if "application/json" in content_type:
+            return await self._token_from_json(request)
+
+        if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+            try:
+                form = await request.form()
+                value = form.get(CSRF_FORM_FIELD)
+                return str(value) if value else None
+            except Exception:
+                # Форма не парсится (например, уже прочитана) — пробуем сырой body
+                return await self._token_from_raw_form(request)
+
+        # Неизвестный media type — пробуем распарсить как JSON, затем как форму
+        json_token = await self._token_from_json(request)
+        if json_token:
+            return json_token
+        try:
+            form = await request.form()
+            value = form.get(CSRF_FORM_FIELD)
+            return str(value) if value else None
+        except Exception:
+            return None
+
+    async def _token_from_json(self, request: Request) -> str | None:
+        """Извлечь csrf_token из JSON-тела и восстановить body для обработчиков."""
+        try:
+            raw = await request.body()
+            if not raw:
+                return None
+            data = json.loads(raw)
+            token = data.get(CSRF_FORM_FIELD) if isinstance(data, dict) else None
+            # Восстанавливаем уже прочитанное тело, чтобы нижестоящие
+            # обработчики могли снова вызвать request.json()
+            request._body = raw
+            if isinstance(data, dict):
+                request._json = data
+            return str(token) if token else None
+        except Exception:
+            return None
+
+    async def _token_from_raw_form(self, request: Request) -> str | None:
+        """Для форм, чей body уже прочитан — парсим вручную (fallback)."""
+        try:
+            raw = await request.body()
+            request._body = raw
+            from urllib.parse import parse_qs
+
+            if raw.startswith(b"--"):
+                # multipart из уже прочитанного body восстановить сложно;
+                # таких кейсов в приложении нет — форма всегда доступна первой.
+                return None
+            params = parse_qs(raw.decode("utf-8", errors="replace"))
+            values = params.get(CSRF_FORM_FIELD, [])
+            return values[0] if values else None
+        except Exception:
+            return None
 
 
 def get_csrf_token(request: Request) -> str:
@@ -104,7 +142,7 @@ def rotate_csrf_token(request: Request) -> str:
 
 
 def validate_csrf(request: Request, token: str) -> bool:
-    """Валидировать CSRF-токен из формы/заголовка."""
+    """Валидировать CSRF-токен из формы/заголовка/JSON."""
     token_from_session: Optional[str] = request.session.get(CSRF_SESSION_KEY)
     if not token_from_session:
         return False

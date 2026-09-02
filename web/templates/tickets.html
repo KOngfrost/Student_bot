@@ -2,6 +2,13 @@
 {% block title %}Заявки - Admin Panel{% endblock %}
 
 {% block content %}
+<style>
+    .pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; flex-wrap: wrap; }
+    .page-link { color: #4f46e5; text-decoration: none; font-weight: 600; padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .page-link:hover { text-decoration: underline; }
+    .page-info { color: #64748b; font-size: 0.9em; }
+    .tickets-count { padding: 8px 0; font-size: 0.9em; color: #64748b; }
+</style>
 <div class="page-header">
     <div>
         <div class="crumb">Обработка</div>
@@ -103,6 +110,21 @@
             </tbody>
         </table>
     </div>
+
+    <!-- Пагинация -->
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% if current_page > 1 %}
+        <a class="page-link" href="/tickets/?page={{ current_page - 1 }}">← Назад</a>
+        {% endif %}
+        <span class="page-info">Страница {{ current_page }} из {{ total_pages }} · заявок: {{ total_tickets }}</span>
+        {% if current_page < total_pages %}
+        <a class="page-link" href="/tickets/?page={{ current_page + 1 }}">Вперёд →</a>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="tickets-count muted">Всего заявок: {{ total_tickets }}</div>
+    {% endif %}
 </div>
 
 <!-- Modal для просмотра заявки -->

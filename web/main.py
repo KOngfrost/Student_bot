@@ -24,6 +24,7 @@ from web.security.middleware import (
     SecurityHeadersMiddleware,
     RequestSizeValidator,
 )
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -44,18 +45,23 @@ app.add_middleware(CSRFMiddleware)
 # 3. Session middleware с безопасными настройками
 # Секрет ОБЯЗАТЕЛЕН: без него запуск запрещён (иначе сессии сбрасываются
 # при каждом перезапуске, что небезопасно и неудобно).
-_session_secret = os.getenv("SESSION_SECRET_KEY")
+_session_secret = settings.SESSION_SECRET_KEY
 if not _session_secret:
     raise RuntimeError(
         "SESSION_SECRET_KEY не задан. Установите его в .env и перезапустите панель. "
         "Генерация: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
     )
 
+# Жёсткие проверки для production (дефолтные креды БД, слабый секрет и т.п.)
+settings.ensure_production_config()
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret,
     max_age=3600,
-    https_only=os.getenv("APP_ENV") != "development",  # https_only=False для localhost
+    # Secure-cookie включается только при доступе по HTTPS (Tailscale serve,
+    # Caddy/Nginx с TLS). При SSH-туннеле / Tailscale без HTTPS кука работает по HTTP.
+    https_only=settings.SESSION_HTTPS_ONLY,
     same_site="strict", # Защита от CSRF через сторонние сайты
     path="/",
 )

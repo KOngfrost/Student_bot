@@ -13,6 +13,7 @@ import pytest_asyncio  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
 
 import core.database as database_module  # noqa: E402
+import core.outbox as outbox_module  # noqa: E402
 import core.reporting as reporting_module  # noqa: E402
 import core.ticket_service as ticket_service_module  # noqa: E402
 from core.models import Base  # noqa: E402
@@ -31,10 +32,12 @@ async def db_session_maker():
         (database_module, database_module.async_session_maker),
         (ticket_service_module, ticket_service_module.async_session_maker),
         (reporting_module, reporting_module.async_session_maker),
+        (outbox_module, outbox_module.async_session_maker),
     ]
     database_module.async_session_maker = maker
     ticket_service_module.async_session_maker = maker
     reporting_module.async_session_maker = maker
+    outbox_module.async_session_maker = maker
 
     yield maker
 

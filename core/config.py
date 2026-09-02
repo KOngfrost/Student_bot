@@ -6,6 +6,16 @@ load_dotenv()
 
 
 class Settings:
+    # === Окружение ===
+    # Значения: development | production (плюс test/testing для конфигов).
+    # В production: запрещены дефолтные креды БД, пустой SESSION_SECRET_KEY и т.п.
+    APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+    dev_environments = {"", "development", "dev", "test", "testing", "local"}
+
+    @property
+    def IS_PRODUCTION(self) -> bool:
+        return self.APP_ENV not in self.dev_environments
+
     # Database
     DB_USER = os.getenv("POSTGRES_USER", os.getenv("DB_USER", "student_bot"))
     DB_PASS = os.getenv("POSTGRES_PASSWORD", os.getenv("DB_PASS", "student_bot"))
@@ -47,6 +57,21 @@ class Settings:
     # Секрет сессий веб-панели (обязателен: без него панель не запускается)
     SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "")
 
+    # === Web admin panel ===
+    # https_only для session-cookie:
+    #   false (по умолчанию) — доступ по http://localhost или http://tailscale-IP
+    #     (SSH-туннель / Tailscale без HTTPS): кука работает по HTTP.
+    #   true — панель за Nginx/Caddy с TLS или через Tailscale HTTPS
+    #     (tailscale serve): кука помечается Secure и шлётся только по HTTPS.
+    SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "false").lower() in ("1", "true", "yes")
+
+    # Доверенные reverse-proxy (IP через запятую), от которых разрешено
+    # принимать настоящий IP клиента из заголовка X-Forwarded-For.
+    # Пусто — заголовок игнорируется (используется прямой IP соединения).
+    TRUSTED_PROXIES = {
+        ip.strip() for ip in os.getenv("TRUSTED_PROXIES", "").split(",") if ip.strip()
+    }
+
     # Веб-админка: учётные данные входа (без дефолтов —
     # вход невозможен, пока они не заданы в .env)
     WEB_ADMIN_USERNAME = os.getenv("WEB_ADMIN_USERNAME", "")
@@ -63,6 +88,25 @@ class Settings:
         for email in os.getenv("REPORT_EMAILS", "").split(",")
         if email.strip()
     ]
+
+    def ensure_production_config(self) -> None:
+        """Жёсткие проверки конфигурации для production (запуск прерывается)."""
+        if not self.IS_PRODUCTION:
+            return
+        if self.DB_PASS == "student_bot":
+            raise RuntimeError(
+                "APP_ENV=production, но POSTGRES_PASSWORD не задан явно "
+                "(дефолт 'student_bot' запрещён в production). Укажите пароль в .env."
+            )
+        if self.DB_USER == "student_bot":
+            raise RuntimeError(
+                "APP_ENV=production, но POSTGRES_USER не задан явно "
+                "(дефолт 'student_bot' запрещён в production)."
+            )
+        if not self.SESSION_SECRET_KEY or len(self.SESSION_SECRET_KEY) < 32:
+            raise RuntimeError(
+                "APP_ENV=production, но SESSION_SECRET_KEY не задан или короче 32 символов."
+            )
 
 
 settings = Settings()

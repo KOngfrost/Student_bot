@@ -15,6 +15,7 @@ import logging
 
 from core.database import async_session_maker
 from core.models import FAQNode, Department
+from web.dependencies import is_superadmin, require_writer
 from web.templating import templates
 from web.security.middleware import sanitize_html
 
@@ -71,7 +72,7 @@ async def faq_page(request: Request, user=Depends(require_admin)):
 
 
 @router.post("/")
-async def add_faq(request: Request, user=Depends(require_admin)):
+async def add_faq(request: Request, user=Depends(require_writer)):
     """Добавление элемента FAQ с санитизацией входных данных."""
     form = await request.form()
     department_id = int(form.get("department_id", 0))
@@ -79,6 +80,11 @@ async def add_faq(request: Request, user=Depends(require_admin)):
     question = sanitize_html(form.get("question", ""))
     is_final = form.get("is_final") == "on"
     final_answer = sanitize_html(form.get("final_answer", "")) if is_final else None
+
+    # Проверка прав (IDOR): админ отдела создаёт FAQ только в своём отделе
+    if not is_superadmin(user) and user.get("department_id") != department_id:
+        request.session["error"] = "Нет прав для работы с этим отделом"
+        return RedirectResponse(url="/faq/", status_code=302)
 
     try:
         async with async_session_maker() as session:
@@ -106,14 +112,22 @@ async def add_faq(request: Request, user=Depends(require_admin)):
 
 
 @router.post("/{node_id}/delete")
-async def delete_faq(request: Request, node_id: int, user=Depends(require_admin)):
+async def delete_faq(request: Request, node_id: int, user=Depends(require_writer)):
     """Удаление элемента FAQ (POST с CSRF-токеном) с проверкой прав."""
     try:
         async with async_session_maker() as session:
             node = await session.get(FAQNode, node_id)
-            if node:
-                await session.delete(node)
-                await session.commit()
+            if not node:
+                request.session["error"] = "Элемент FAQ не найден"
+                return RedirectResponse(url="/faq/", status_code=302)
+
+            # IDOR: админ отдела может удалять только FAQ своего отдела
+            if not is_superadmin(user) and user.get("department_id") != node.department_id:
+                request.session["error"] = "Нет прав для удаления этого элемента FAQ"
+                return RedirectResponse(url="/faq/", status_code=302)
+
+            await session.delete(node)
+            await session.commit()
     except Exception as e:
         request.session["error"] = f"Ошибка: {e}"
         return RedirectResponse(url="/faq/", status_code=302)

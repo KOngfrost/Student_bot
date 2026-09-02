@@ -16,6 +16,7 @@ import logging
 
 from core.database import async_session_maker
 from core.models import User, Admin, Department, UserRole
+from web.dependencies import is_superadmin
 from web.templating import templates
 from web.security.csrf import get_csrf_token
 from web.security.middleware import sanitize_html
@@ -44,10 +45,12 @@ def require_admin(request: Request) -> dict:
 def require_superadmin(request: Request) -> dict:
     """
     Депенденция для проверки, что текущий пользователь — суперадмин.
-    Только суперадмин может назначать/удалять других суперадминов.
+    Только суперадмин может назначать/удалять администраторов.
+    Проверка работает как для ролей web_users (SUPERADMIN), так и для
+    легаси-ролей Admin (superadmin).
     """
     user = _get_current_admin_user(request)
-    if user.get("role") != "superadmin":
+    if not is_superadmin(user):
         raise HTTPException(status_code=403, detail="Только суперадмин может выполнять это действие")
     return user
 
@@ -64,17 +67,12 @@ async def admins_page(request: Request, user=Depends(require_admin)):
     departments = []
     db_error = False
 
-    current_admin_user_id = user.get("user_id")  # ID админ-записи в БД
-
     try:
         async with async_session_maker() as session:
             depts_result = await session.execute(select(Department))
             departments = depts_result.scalars().all()
 
-            # Загружаем текущего админа, чтобы узнать его роль и отдел
-            current_admin = await session.get(Admin, current_admin_user_id)
-
-            if current_admin and current_admin.role == UserRole.SUPERADMIN:
+            if is_superadmin(user):
                 # Суперадмин видит всех
                 admins_result = await session.execute(
                     select(Admin)
@@ -86,7 +84,7 @@ async def admins_page(request: Request, user=Depends(require_admin)):
                 # Обычный админ видит только:
                 # 1. Админов своего отдела
                 # 2. Админов без привязки к отделу
-                dept_id = current_admin.department_id if current_admin else None
+                dept_id = user.get("department_id")
                 admins_result = await session.execute(
                     select(Admin)
                     .options(selectinload(Admin.user), selectinload(Admin.department))
@@ -132,24 +130,15 @@ async def add_admin(request: Request, user=Depends(require_admin)):
     department_id = form.get("department_id")
     role = form.get("role", "admin")
 
-    # ID текущего админа
-    current_admin_user_id = user.get("user_id")
-
-    # Проверка: только суперадмин может назначать superadmin
+    # Проверка прав: только суперадмин может назначать роль superadmin
     try:
         async with async_session_maker() as session:
-            current_admin = await session.get(Admin, current_admin_user_id)
-            if not current_admin:
-                request.session["error"] = "Текущий админ не найден"
-                return RedirectResponse(url="/admin/admins/", status_code=302)
-
-            # Обычный админ не может назначать superadmin
-            if role == "superadmin" and current_admin.role != UserRole.SUPERADMIN:
+            if role == "superadmin" and not is_superadmin(user):
                 request.session["error"] = "Только суперадмин может назначать суперадминов"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
             # Обычный админ может назначать только роль admin
-            if role == "admin" and current_admin.role not in (UserRole.SUPERADMIN, UserRole.ADMIN):
+            if role == "admin" and not is_superadmin(user):
                 request.session["error"] = "Недостаточно прав для назначения администратора"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
@@ -196,7 +185,9 @@ async def delete_admin(request: Request, admin_id: int, user=Depends(require_adm
     - Только суперадмин может удалять обычных админов
     - Нельзя удалить самого себя и суперадмина
     """
-    current_admin_user_id = user.get("user_id")
+    if not is_superadmin(user):
+        request.session["error"] = "Только суперадмин может удалять администраторов"
+        return RedirectResponse(url="/admin/admins/", status_code=302)
 
     try:
         async with async_session_maker() as session:
@@ -205,20 +196,14 @@ async def delete_admin(request: Request, admin_id: int, user=Depends(require_adm
                 request.session["error"] = "Администратор не найден"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
-            # Нельзя удалить самого себя
-            if admin.id == current_admin_user_id:
-                request.session["error"] = "Нельзя удалить себя"
-                return RedirectResponse(url="/admin/admins/", status_code=302)
-
             # Нельзя удалить суперадмина
             if admin.role == UserRole.SUPERADMIN:
                 request.session["error"] = "Нельзя удалить суперадмина"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
-            # Проверка прав: обычный админ не может удалять никого
-            current_admin = await session.get(Admin, current_admin_user_id)
-            if not current_admin or current_admin.role != UserRole.SUPERADMIN:
-                request.session["error"] = "Только суперадмин может удалять администраторов"
+            # Нельзя удалить самого себя (для legacy-админов с user_id в сессии)
+            if user.get("user_id") == admin.id:
+                request.session["error"] = "Нельзя удалить себя"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
             await session.delete(admin)

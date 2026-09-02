@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import logging
 import re
 
 from core.vk_compat import patch_vkbottle_logging
@@ -23,6 +24,8 @@ from core.ticket_service import (
 from bots.vk.keyboards import build_main_keyboard, build_tickets_keyboard
 
 vk_bot = Bot(token=settings.VK_BOT_TOKEN)
+
+logger = logging.getLogger(__name__)
 
 
 def _main_reply_text() -> str:
@@ -179,8 +182,12 @@ async def report_handler(message: Message):
         )
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт {filename}")
     except (ValueError, OSError, KeyError, VKAPIError) as error:
-        await BotCore.log_action(user, "report_failed", f"Ошибка при формировании отчёта: {error}")
-        await message.answer(f"Не удалось отправить отчет: {error}")
+        logger.exception("Ошибка при формировании отчёта: %s", error)
+        await BotCore.log_action(user, "report_failed", "Ошибка при формировании отчёта")
+        await message.answer(
+            "Не удалось сформировать отчёт. Попробуйте ещё раз позже или обратитесь "
+            "к администратору. Детали уже записаны в журнал."
+        )
         return
     await message.answer("Отчет сформирован и отправлен.")
 
@@ -219,8 +226,11 @@ async def report_by_date_input(message: Message):
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за {parsed} (по дате)")
         await message.answer(f"Отчет за {parsed:%d.%m.%Y} сформирован и отправлен.")
     except Exception as error:
-        await BotCore.log_action(user, "report_failed", f"Ошибка при формировании отчёта за {parsed}: {error}")
-        await message.answer(f"Не удалось отправить отчет: {error}")
+        logger.exception("Ошибка при формировании отчёта за %s: %s", parsed, error)
+        await BotCore.log_action(user, "report_failed", f"Ошибка при формировании отчёта за {parsed}")
+        await message.answer(
+            "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал."
+        )
 
 
 @vk_bot.on.private_message(text="Отчет за период")
@@ -272,8 +282,20 @@ async def report_by_period_input(message: Message):
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за период {date_from} - {date_to}")
         await message.answer(f"Отчет за период с {date_from:%d.%m.%Y} по {date_to:%d.%m.%Y} сформирован и отправлен.")
     except Exception as error:
-        await BotCore.log_action(user, "report_failed", f"Ошибка при формировании отчёта за период {date_from} - {date_to}: {error}")
-        await message.answer(f"Не удалось отправить отчет: {error}")
+        logger.exception(
+            "Ошибка при формировании отчёта за период %s - %s: %s",
+            date_from,
+            date_to,
+            error,
+        )
+        await BotCore.log_action(
+            user,
+            "report_failed",
+            f"Ошибка при формировании отчёта за период {date_from} - {date_to}",
+        )
+        await message.answer(
+            "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал."
+        )
 
 
 

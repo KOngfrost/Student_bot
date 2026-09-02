@@ -249,3 +249,45 @@ class Log(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="logs")
+
+
+class LoginAttempt(Base):
+    """Попытка входа в веб-админку.
+
+    Хранится в БД (не в памяти процесса), чтобы rate limiting переживал
+    перезапуски и работал одинаково при нескольких экземплярах панели.
+    """
+
+    __tablename__ = "login_attempts"
+    __table_args__ = (
+        Index("ix_login_attempts_ip_created", "ip", "attempted_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ip = Column(String(64), nullable=False)
+    attempted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    success = Column(Boolean, default=False, nullable=False)
+
+
+class VkOutbox(Base):
+    """Сообщения, ожидающие отправки в VK (outbox-паттерн, защита от потери).
+
+    Пишется в той же транзакции, что и бизнес-изменение (например, ответ
+    администратора), после чего фоновый воркер доставляет сообщения.
+    Этим устраняется «отправили в VK, а в БД не сохранили».
+    """
+
+    __tablename__ = "vk_outbox"
+    __table_args__ = (
+        Index("ix_vk_outbox_status_created", "status", "created_at"),
+    )
+
+    # Статусы: pending (ожидает доставки) | sent | failed (лимит попыток исчерпан)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    vk_id = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    status = Column(String(16), default="pending", nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_at = Column(DateTime(timezone=True), nullable=True)

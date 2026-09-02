@@ -1,0 +1,4 @@
+?? env_check.txt
+?? git_status.txt
+?? init_files.txt
+?? scripts_list.txt

@@ -8,14 +8,11 @@
 """
 
 import logging
-import random
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.config import settings
 from core.database import async_session_maker
 from core.models import (
     Department,
@@ -26,11 +23,9 @@ from core.models import (
     TicketStatus,
     User,
 )
+from core.outbox import add_outbox_message, fire_outbox_delivery
 
 logger = logging.getLogger(__name__)
-
-VK_API_URL = "https://api.vk.com/method/messages.send"
-VK_API_VERSION = "5.199"
 
 # Допустимые переходы статусов заявки:
 # NEW -> IN_PROGRESS -> TRANSFERRED_ADMIN/HOUSEKEEPING -> COMPLETED -> COMPLETED_AUTO
@@ -90,8 +85,12 @@ async def get_user_tickets(
     vk_id: int,
     include_completed: bool = False,
     limit: int = 10,
+    offset: int = 0,
 ) -> list[Ticket]:
-    """Получить заявки пользователя по его VK ID (новые сверху)."""
+    """Получить заявки пользователя по его VK ID (новые сверху).
+
+    limit/offset дают пагинацию в боте («Показать ещё») и веб-панели.
+    """
     async with async_session_maker() as session:
         stmt = (
             select(Ticket)
@@ -100,6 +99,7 @@ async def get_user_tickets(
             .where(User.vk_id == vk_id)
             .order_by(Ticket.created_at.desc())
             .limit(limit)
+            .offset(offset)
         )
         if not include_completed:
             stmt = stmt.where(Ticket.status.not_in(tuple(COMPLETED_STATUSES)))
@@ -136,45 +136,6 @@ def add_ticket_message(
     return entry
 
 
-async def send_vk_message(vk_id: int, text: str) -> bool:
-    """Отправить сообщение студенту через VK API (используется веб-панелью).
-
-    Возвращает True при успехе. Ошибки не прерывают бизнес-процесс:
-    ответ администратора сохраняется в БД даже если VK недоступен.
-    """
-    if not vk_id:
-        return False
-    if not settings.VK_BOT_TOKEN:
-        logger.warning("VK_BOT_TOKEN не задан: уведомление студенту vk_id=%s не отправлено", vk_id)
-        return False
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                VK_API_URL,
-                data={
-                    "access_token": settings.VK_BOT_TOKEN,
-                    "v": VK_API_VERSION,
-                    "peer_id": vk_id,
-                    "random_id": random.randint(1, 2**31 - 1),
-                    "message": text[:4000],
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-            if "error" in payload:
-                logger.error(
-                    "VK API error при отправке сообщения vk_id=%s: %s",
-                    vk_id,
-                    payload["error"].get("error_msg"),
-                )
-                return False
-            return True
-    except (httpx.HTTPError, ValueError) as error:
-        logger.error("Не удалось отправить VK-сообщение vk_id=%s: %s", vk_id, error)
-        return False
-
-
 async def reply_to_ticket(
     ticket_id: int,
     admin_username: str,
@@ -183,14 +144,15 @@ async def reply_to_ticket(
 ) -> tuple[Ticket | None, bool]:
     """Ответ администратора на заявку из веб-панели.
 
-    Шаги:
-    1. Сохранить сообщение в ticket_messages (author_type=admin).
-    2. Записать ответ в tickets.response_text.
-    3. Перевести статус: NEW -> IN_PROGRESS (или -> COMPLETED, если complete=True).
-    4. Отправить сообщение студенту через VK API (если не анонимная заявка).
-    5. Записать действие в logs.
+    Шаги (outbox-паттерн, устраняет потерю уведомлений):
+    1. Открыть транзакцию, заблокировать строку заявки (FOR UPDATE),
+       исключая конкурентное редактирование другими админами.
+    2. Сохранить сообщение в ticket_messages, обновить статус, записать Log
+       и положить VK-уведомление в таблицу vk_outbox — всё в ОДНОЙ транзакции.
+    3. commit() — только после этого сообщение доставляется фоновым воркером
+       (с повтором попыток), поэтому «ответ в VK без записи в БД» невозможен.
 
-    Возвращает (заявка, отправлено_ли_VK-сообщение) или (None, False),
+    Возвращает (заявка, запланирована_ли_доставка_в_VK) или (None, False),
     если заявка не найдена.
     """
     async with async_session_maker() as session:
@@ -198,6 +160,7 @@ async def reply_to_ticket(
             select(Ticket)
             .options(selectinload(Ticket.user), selectinload(Ticket.department))
             .where(Ticket.id == ticket_id)
+            .with_for_update()
         )
         if ticket is None:
             return None, False
@@ -215,7 +178,7 @@ async def reply_to_ticket(
         elif ticket.status == TicketStatus.NEW:
             ticket.status = TicketStatus.IN_PROGRESS
 
-        # 5. Журнал
+        # 4. Журнал
         session.add(
             Log(
                 user_id=ticket.user_id,
@@ -227,16 +190,28 @@ async def reply_to_ticket(
             )
         )
 
-        vk_sent = False
+        # 5. Откладываем VK-уведомление в ту же транзакцию (outbox)
+        scheduled = False
         if not ticket.is_anonymous and ticket.user and ticket.user.vk_id:
-            vk_sent = await send_vk_message(
+            add_outbox_message(
+                session,
                 ticket.user.vk_id,
-                f"Ответ на вашу заявку #{ticket.id} "
-                f"({ticket.department.name if ticket.department else '—'}):\n\n{message}",
+                (
+                    f"Ответ на вашу заявку #{ticket.id} "
+                    f"({ticket.department.name if ticket.department else '—'}):\n\n{message}"
+                ),
             )
+            scheduled = True
 
+        # 6. Фиксируем ВСЁ разом, и только потом пытаемся доставить
         await session.commit()
-        return ticket, vk_sent
+
+        if scheduled:
+            # Бесшовная доставка: сразу стартуем фоновую отправку.
+            # Если она не поспеет, сообщение донесёт периодический воркер.
+            fire_outbox_delivery()
+
+        return ticket, scheduled
 
 
 async def change_ticket_status(
@@ -244,9 +219,15 @@ async def change_ticket_status(
     new_status: TicketStatus,
     admin_username: str,
 ) -> Ticket | None:
-    """Сменить статус заявки с проверкой допустимых переходов. Пишет действие в logs."""
+    """Сменить статус заявки с проверкой допустимых переходов. Пишет действие в logs.
+
+    Строка заявки блокируется (SELECT...FOR UPDATE), чтобы два администратора
+    не могли одновременно изменить статус одной заявки.
+    """
     async with async_session_maker() as session:
-        ticket = await session.get(Ticket, ticket_id)
+        ticket = await session.scalar(
+            select(Ticket).where(Ticket.id == ticket_id).with_for_update()
+        )
         if ticket is None:
             return None
 
@@ -279,9 +260,18 @@ async def assign_ticket_department(
     department_id: int,
     admin_username: str,
 ) -> Ticket | None:
-    """Переназначить заявку другому отделу (только суперадмин). Пишет действие в logs."""
+    """Переназначить заявку другому отделу (только суперадмин). Пишет действие в logs.
+
+    Строка заявки блокируется (SELECT...FOR UPDATE) для защиты от
+    конкурентной передачи в разные отделы.
+    """
     async with async_session_maker() as session:
-        ticket = await session.get(Ticket, ticket_id)
+        ticket = await session.scalar(
+            select(Ticket)
+            .options(selectinload(Ticket.department), selectinload(Ticket.user))
+            .where(Ticket.id == ticket_id)
+            .with_for_update()
+        )
         department = await session.get(Department, department_id)
         if ticket is None or department is None:
             return None

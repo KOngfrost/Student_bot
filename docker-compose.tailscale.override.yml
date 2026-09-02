@@ -1,14 +1,16 @@
-# Override для доступа к веб-панели через Tailscale.
+# Override для доступа к веб-панели через Tailscale (с HTTPS).
 #
 # Использование:
-#   docker compose -f docker-compose.yml -f docker-compose.tailscale.override.yml \
-#     --profile tailscale up -d
+#   ./scripts/setup_tailscale.sh
+# (или вручную: docker compose -f docker-compose.yml -f docker-compose.tailscale.override.yml \
+#    --profile tailscale up -d && затем включить tailscale serve)
 #
-# Панель будет доступна только внутри вашей tailnet-сети по адресу:
-#   http://student-bot-panel:8000  (или IP Tailscale-узла)
+# Панель доступна ТОЛЬКО внутри вашей tailnet-сети по адресу:
+#   https://student-bot-panel.<ваш-tailnet>   (HTTPS через tailscale serve)
+# Наружу (в интернет) панель не публикуется вообще.
 #
-# Наружу (в интернет) панель при этом не публикуется вообще.
 # Требуется Docker Compose >= 2.24 (тег !reset) и TAILSCALE_AUTH_KEY в .env.
+# SESSION_HTTPS_ONLY=true в .env — кука Secure, работает с HTTPS.
 
 services:
   web-admin:
@@ -23,3 +25,8 @@ services:
         condition: service_completed_successfully
       tailscale:
         condition: service_started
+
+  tailscale:
+    # Нужен command, чтобы включить serve после старта; но сделать это
+    # надёжнее через setup_tailscale.sh (там есть ожидание и проверка).
+    profiles: ["tailscale"]

@@ -30,3 +30,20 @@ def test_report_time_format():
     hours, minutes = settings.REPORT_TIME.split(":")
     assert 0 <= int(hours) <= 23
     assert 0 <= int(minutes) <= 59
+
+
+def test_ensure_production_config_dev_no_op():
+    """В dev-окружении проверка production не должна бросать исключение."""
+    settings.ensure_production_config()
+
+
+def test_dev_environment_is_not_production():
+    assert settings.IS_PRODUCTION is False
+
+
+def test_trusted_proxies_empty_by_default():
+    assert settings.TRUSTED_PROXIES == set()
+
+
+def test_session_https_only_default_false():
+    assert settings.SESSION_HTTPS_ONLY is False

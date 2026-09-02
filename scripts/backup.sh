@@ -10,11 +10,14 @@
 #   WEEKLY_KEEP     — сколько недельных копий хранить (по умолчанию 4)
 #   MONTHLY_KEEP    — сколько месячных копий хранить (по умолчанию 3)
 #
-# Настройка cron (ежедневно в 03:00):
-#   0 3 * * * /opt/student_bot/scripts/backup.sh >> /var/log/student_bot_backup.log 2>&1
+# Удалённая выгрузка (ОБЯЗАТЕЛЬНО для production):
+#   BACKUP_REMOTE=RCLONE_REMOTE:path — например BACKUP_REMOTE=myb2:student_bot_backups
+#   Для этого нужен настроенный rclone (https://rclone.org). Если переменная
+#   не задана, скрипт только предупреждает — локальная копия не защищает
+#   от потери сервера.
 #
-# ВАЖНО: копии нужно выгружать за пределы VPS (S3, Backblaze B2, rclone и т.п.),
-# например: rclone copy "$BACKUP_DIR" remote:student_bot_backups --max-age 48h
+# Настройка cron (ежедневно в 03:00):
+#   0 3 * * * BACKUP_REMOTE=myb2:student_bot_backups /opt/student_bot/scripts/backup.sh >> /var/log/student_bot_backup.log 2>&1
 
 set -euo pipefail
 
@@ -22,6 +25,7 @@ BACKUP_DIR="${BACKUP_DIR:-/var/backups/student_bot}"
 DAILY_KEEP="${DAILY_KEEP:-7}"
 WEEKLY_KEEP="${WEEKLY_KEEP:-4}"
 MONTHLY_KEEP="${MONTHLY_KEEP:-3}"
+BACKUP_REMOTE="${BACKUP_REMOTE:-}"
 
 # Читаем POSTGRES_* из .env проекта
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -65,3 +69,15 @@ for f in "$BACKUP_DIR"/student_bot_*.sql.gz; do
 done
 
 echo "[$(date '+%F %T)] Rotation done (daily=${DAILY_KEEP}, weekly=${WEEKLY_KEEP}, monthly=${MONTHLY_KEEP})"
+# --- Удалённая выгрузка (rclone; обязательна для production) ---
+if [[ -n "$BACKUP_REMOTE" ]]; then
+    if command -v rclone >/dev/null 2>&1; then
+        echo "[$(date '+%F %T')] Uploading backup to ${BACKUP_REMOTE} ..."
+        rclone copy --progress --max-age "${DAILY_KEEP}d" "$BACKUP_DIR" "$BACKUP_REMOTE"
+        echo "[$(date '+%F %T')] Upload done"
+    else
+        echo "[$(date '+%F %T')] WARNING: BACKUP_REMOTE задан, но rclone не установлен — пропускаю выгрузку" >&2
+    fi
+else
+    echo "[$(date '+%F %T')] INFO: BACKUP_REMOTE не задан — удалённой копии нет. Production-рекомендация: настройте rclone и задайте BACKUP_REMOTE." >&2
+fi

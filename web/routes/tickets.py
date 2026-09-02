@@ -41,20 +41,40 @@ STATUS_CHOICES = [
 
 
 @router.get("/")
-async def tickets_page(request: Request, user: dict = Depends(require_auth)):
-    """Страница заявок с IDOR-защитой: админ отдела видит только свой отдел."""
+async def tickets_page(
+    request: Request,
+    page: int = 1,
+    page_size: int = 25,
+    user: dict = Depends(require_auth),
+):
+    """Страница заявок с IDOR-защитой и пагинацией."""
     tickets = []
     departments = []
     db_error = False
+    total = 0
+    current_page = max(1, page)
+    page_size = min(max(1, page_size), 100)
+    offset = (current_page - 1) * page_size
+    total_pages = 1
 
     try:
         async with async_session_maker() as session:
             is_super, dept_id = await get_admin_scope(session, user)
 
+            # Общее количество (для пагинации)
+            from sqlalchemy import func
+
+            count_stmt = select(func.count(Ticket.id))
+            if not is_super:
+                count_stmt = count_stmt.where(Ticket.department_id == dept_id)
+            total = (await session.scalar(count_stmt)) or 0
+
             stmt = (
                 select(Ticket)
                 .options(selectinload(Ticket.user), selectinload(Ticket.department))
                 .order_by(Ticket.created_at.desc())
+                .offset(offset)
+                .limit(page_size)
             )
             if not is_super:
                 stmt = stmt.where(Ticket.department_id == dept_id)
@@ -64,6 +84,8 @@ async def tickets_page(request: Request, user: dict = Depends(require_auth)):
     except Exception as e:
         db_error = True
         logger.error("Не удалось загрузить заявки: %s", e)
+
+    total_pages = max(1, (total + page_size - 1) // page_size if total > 0 else 1)
 
     return templates.TemplateResponse(
         "tickets.html",
@@ -78,6 +100,10 @@ async def tickets_page(request: Request, user: dict = Depends(require_auth)):
             "success": request.session.pop("success", None),
             "error": request.session.pop("error", None),
             "csrf_token": get_csrf_token(request),
+            "current_page": current_page,
+            "total_pages": total_pages,
+            "total_tickets": total,
+            "page_size": page_size,
         },
     )
 
