@@ -13,10 +13,10 @@
 import logging
 import os
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from web.templating import templates  # noqa: F401 (реэкспорт для обратной совместимости)
@@ -99,6 +99,22 @@ async def validate_request_size(request: Request, call_next):
 
 
 # Глобальный обработчик ошибок — без раскрытия деталей
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Сохранить корректный HTTP-статус для отказов auth и CSRF."""
+    if exc.status_code in (302, 303) and exc.headers:
+        return RedirectResponse(
+            url=exc.headers.get("Location", "/auth/login"),
+            status_code=exc.status_code,
+            headers=exc.headers,
+        )
+    return JSONResponse(
+        content={"detail": exc.detail},
+        status_code=exc.status_code,
+        headers=exc.headers,
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Обрабатывает все необработанные исключения БЕЗ раскрытия деталей."""

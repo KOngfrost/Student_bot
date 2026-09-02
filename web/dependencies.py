@@ -111,9 +111,9 @@ def can_write(user: dict) -> bool:
     return role_of(user) in (WebRole.SUPERADMIN, WebRole.DEPARTMENT_ADMIN)
 
 
-def require_writer(request: Request) -> dict:
+async def require_writer(request: Request) -> dict:
     """Проверка авторизации + права на изменение (403 для VIEWER)."""
-    user = require_auth(request)
+    user = await require_auth(request)
     if not can_write(user):
         raise HTTPException(
             status_code=403,
@@ -122,9 +122,9 @@ def require_writer(request: Request) -> dict:
     return user
 
 
-def require_superadmin(request: Request) -> dict:
+async def require_superadmin(request: Request) -> dict:
     """Только для суперадминов."""
-    user = require_auth(request)
+    user = await require_auth(request)
     if not is_superadmin(user):
         raise HTTPException(
             status_code=403, detail="Действие доступно только суперадминистратору"

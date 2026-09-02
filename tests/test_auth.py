@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from web.dependencies import can_write, is_superadmin, role_of
+from web.dependencies import can_write, is_superadmin, require_superadmin, require_writer, role_of
 from web.routes.auth import (
     _clear_attempts,
     _is_rate_limited,
@@ -113,3 +113,19 @@ class TestSessionHelpers:
         )
         assert is_super is False
         assert department_id is None
+
+    async def test_writer_dependency_awaits_authentication(self):
+        request = MagicMock()
+        request.session = {"user": {"username": "admin", "role": "SUPERADMIN", "bootstrap": True}}
+
+        user = await require_writer(request)
+
+        assert user["username"] == "admin"
+
+    async def test_superadmin_dependency_awaits_authentication(self):
+        request = MagicMock()
+        request.session = {"user": {"username": "admin", "role": "SUPERADMIN", "bootstrap": True}}
+
+        user = await require_superadmin(request)
+
+        assert user["role"] == "SUPERADMIN"

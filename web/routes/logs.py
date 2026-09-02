@@ -7,7 +7,7 @@
 - IDOR: суперадмин видит все логи, обычный админ — логи своего отдела
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload

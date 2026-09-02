@@ -383,12 +383,13 @@ async def report_handler(message: Message):
     await message.answer("Отчет сформирован и отправлен.")
 
 
-@vk_bot.on.private_message(text="Отчет по дате", state=ReportStates.WAITING_DATE)
+@vk_bot.on.private_message(text="Отчет по дате")
 async def report_by_date_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
         await message.answer("У вас нет доступа к отчетам.")
         return
+    await vk_bot.state_dispenser.set(message.from_id, ReportStates.WAITING_DATE)
     await message.answer("Введите дату в формате ДД.ММ.ГГГГ (например: 31.08.2026)")
 
 
@@ -423,12 +424,13 @@ async def report_by_date_input(message: Message):
         )
 
 
-@vk_bot.on.private_message(text="Отчет за период", state=ReportStates.WAITING_DATE_FROM)
+@vk_bot.on.private_message(text="Отчет за период")
 async def report_by_period_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
         await message.answer("У вас нет доступа к отчетам.")
         return
+    await vk_bot.state_dispenser.set(message.from_id, ReportStates.WAITING_DATE_FROM)
     await message.answer(
         "Введите диапазон дат в формате:\n"
         "31.08.2026 - 15.09.2026\n"
