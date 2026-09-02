@@ -69,9 +69,8 @@ async def _start_scheduler() -> None:
 def run_vk_polling() -> None:
     retry_delay = 5
 
-    # Планировщик добавляется ОДИН раз — vkbottle on_startup сработает
-    # при первом вызове run(), и флаг _scheduler_started защитит от дублей.
-    vk_bot.on_startup.append(_start_scheduler)
+    # vkbottle 4.11 ожидает в on_startup уже созданный awaitable.
+    vk_bot.on_startup.append(_start_scheduler())
 
     while True:
         try:

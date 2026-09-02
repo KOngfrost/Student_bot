@@ -43,6 +43,9 @@ chmod +x scripts/setup_tailscale.sh
 ./scripts/setup_tailscale.sh
 ```
 
+В Windows PowerShell запустите `scripts/setup_tailscale.ps1`. Скрипт поднимает
+профиль, ждет подключения Tailscale и включает `tailscale serve` для HTTPS.
+
 Скрипт включает HTTPS и `SESSION_HTTPS_ONLY=true`. Не публикуйте 5432 и 8000 в интернет; на firewall оставьте SSH и доступ Tailscale.
 
 ## Резервное копирование

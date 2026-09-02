@@ -335,12 +335,15 @@ def format_ticket_list(tickets: list[Ticket]) -> str:
     if not tickets:
         return "У вас пока нет заявок."
 
-    lines = ["Ваши заявки:", ""]
+    lines = [f"Ваши заявки (последние {len(tickets)}):", ""]
     for ticket in tickets:
         created = ticket.created_at.strftime("%d.%m.%Y") if ticket.created_at else "—"
         dept = ticket.department.name if ticket.department else "—"
         lines.append(f"#{ticket.id} · {dept} · {ticket.topic or 'Без темы'}")
         lines.append(f"   Статус: {ticket.status.value} · создана {created}")
+        if ticket.description:
+            preview = " ".join(ticket.description.split())
+            lines.append(f"   Вопрос: {preview[:160]}{'...' if len(preview) > 160 else ''}")
         if ticket.response_text:
             preview = ticket.response_text[:120]
             lines.append(f"   Ответ: {preview}{'…' if len(ticket.response_text) > 120 else ''}")

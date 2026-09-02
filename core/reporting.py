@@ -280,7 +280,7 @@ async def send_report_to_vk(api, admin_vk_id: int, report_bytes: bytes, filename
 
     uploader = DocMessagesUploader(api)
     attachment = await uploader.upload(
-        file_source=BytesIO(report_bytes),
+        file_source=report_bytes,
         peer_id=admin_vk_id,
         title=filename,
     )
@@ -398,6 +398,12 @@ async def _run_report(api, admin_vk_id: int, report_date: datetime) -> None:
 
     # Отправка в VK — отдельный try/except
     vk_failed = False
+    email_configured = bool(settings.SMTP_HOST and settings.REPORT_EMAILS)
+    delivery_configured = bool(admin_vk_id or email_configured)
+    if not delivery_configured:
+        logger.error("Отчёт не отправлен: не настроен ни один канал доставки")
+        return
+
     if admin_vk_id:
         try:
             await send_report_to_vk(api, admin_vk_id, report_bytes, filename)
@@ -407,7 +413,7 @@ async def _run_report(api, admin_vk_id: int, report_date: datetime) -> None:
 
     # Отправка по email — отдельный try/except
     email_failed = False
-    if settings.REPORT_EMAILS:
+    if email_configured:
         try:
             await asyncio.to_thread(send_report_email, report_bytes, filename)
         except Exception:

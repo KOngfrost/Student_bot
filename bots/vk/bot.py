@@ -4,7 +4,7 @@ import json
 import logging
 import re
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from core.vk_compat import patch_vkbottle_logging
@@ -31,7 +31,7 @@ from core.ticket_service import (
     get_user_tickets,
     reply_to_ticket,
 )
-from bots.vk.keyboards import build_main_keyboard, build_tickets_keyboard
+from bots.vk.keyboards import build_admin_keyboard, build_main_keyboard, build_tickets_keyboard
 
 vk_bot = Bot(token=settings.VK_BOT_TOKEN)
 
@@ -68,15 +68,19 @@ def _main_reply_text() -> str:
     )
 
 
+async def _main_keyboard_for(vk_id: int) -> str:
+    user = await BotCore.get_or_create_user(vk_id=vk_id)
+    return build_main_keyboard(await BotCore.is_admin(user))
+
+
 @vk_bot.on.private_message(
     text=["/start", "start", "Start", "START", "старт", "меню", "Меню", "Начать"]
 )
 async def start_handler(message: Message):
     touch_heartbeat()
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
-    has_tickets = await BotCore.get_user_tickets_count(user) > 0
     await BotCore.log_action(user, "start", "Пользователь нажал /start")
-    keyboard = build_main_keyboard(has_tickets, await BotCore.is_admin(user))
+    keyboard = build_main_keyboard(await BotCore.is_admin(user))
     await message.answer(_main_reply_text(), keyboard=keyboard)
 
 
@@ -91,7 +95,7 @@ async def my_tickets_handler(message: Message):
         await message.answer(
             "У вас пока нет заявок.\n\n"
             "Чтобы создать заявку, выберите раздел в меню.",
-            keyboard=build_main_keyboard(False),
+            keyboard=build_main_keyboard(),
         )
         return
 
@@ -109,7 +113,7 @@ async def ticket_details_handler(message: Message):
     if not match:
         await message.answer(
             "Укажите номер заявки, например: «Подробнее #12».",
-            keyboard=build_main_keyboard(False),
+            keyboard=build_main_keyboard(),
         )
         return
 
@@ -120,7 +124,7 @@ async def ticket_details_handler(message: Message):
     if ticket is None:
         await message.answer(
             f"Заявка #{ticket_id} не найдена среди ваших заявок.",
-            keyboard=build_main_keyboard(False),
+            keyboard=build_main_keyboard(),
         )
         return
 
@@ -136,7 +140,7 @@ async def housing_section(message: Message):
     await message.answer(
         "Раздел «Жилбыт» открыт. Здесь можно будет сообщить о проблеме в общежитии "
         "или задать вопрос по бытовым условиям. Форма обращения готовится.",
-        keyboard=build_main_keyboard(False),
+        keyboard=build_main_keyboard(),
     )
 
 
@@ -145,7 +149,7 @@ async def culture_section(message: Message):
     await message.answer(
         "Раздел «Культмасс» открыт. Здесь появятся мероприятия, анонсы и запись "
         "на события.",
-        keyboard=build_main_keyboard(False),
+        keyboard=build_main_keyboard(),
     )
 
 
@@ -154,7 +158,7 @@ async def information_section(message: Message):
     await message.answer(
         "Раздел «Информ» открыт. Здесь будет справочная информация и ответы на "
         "частые вопросы.",
-        keyboard=build_main_keyboard(False),
+        keyboard=build_main_keyboard(),
     )
 
 
@@ -163,24 +167,43 @@ async def corporate_section(message: Message):
     await message.answer(
         "Раздел «Корпоративный» открыт. Здесь можно будет обратиться по вопросам "
         "мероприятий и жизни университета.",
-        keyboard=build_main_keyboard(False),
+        keyboard=build_main_keyboard(),
     )
 
 
-@vk_bot.on.private_message(text=["Анонимное обращение", "Анонимное обращение"])
+@vk_bot.on.private_message(text=["Задать вопрос", "задать вопрос"])
+async def question_section_start(message: Message):
+    touch_heartbeat()
+    await vk_bot.state_dispenser.set(
+        message.from_id,
+        AnonymousStates.WAITING_DESCRIPTION,
+        topic="Вопрос",
+    )
+    await message.answer(
+        "Опишите ваш вопрос или проблему одним сообщением.\n"
+        "После этого выберите, сохранять ли ваше имя для ответа в VK.",
+        keyboard=build_main_keyboard(),
+    )
+
+
+@vk_bot.on.private_message(text=["Анонимное обращение", "анонимное обращение"])
 async def anonymous_section_start(message: Message):
     """Начало создания анонимной заявки — бот запрашивает текст."""
     touch_heartbeat()
     # Устанавливаем FSM-состояние
-    await vk_bot.state_dispenser.set(message.from_id, AnonymousStates.WAITING_DESCRIPTION)
+    await vk_bot.state_dispenser.set(
+        message.from_id,
+        AnonymousStates.WAITING_DESCRIPTION,
+        topic="Анонимное обращение",
+    )
     await message.answer(
         "🔒 Анонимное обращение\n\n"
-        "Вы можете anonymously сообщить о проблеме.\n"
+        "Вы можете анонимно сообщить о проблеме.\n"
         "Ваше имя и VK ID НЕ будут привязаны к заявке.\n\n"
         "Опишите вашу проблему или предложение в одном сообщении.\n"
         "Чем подробнее — тем быстрее мы сможем помочь.\n\n"
         "Введите текст обращения:",
-        keyboard=build_main_keyboard(False),
+        keyboard=build_main_keyboard(),
     )
 
 
@@ -198,10 +221,13 @@ async def anonymous_section_submit(message: Message):
         )
         return
 
+    state_peer = await vk_bot.state_dispenser.get(message.from_id)
+    topic = state_peer.payload.get("topic", "Вопрос") if state_peer else "Вопрос"
     await vk_bot.state_dispenser.set(
         message.from_id,
         AnonymousStates.WAITING_IDENTITY_CHOICE,
         description=description,
+        topic=topic,
     )
     await message.answer(
         "Выберите режим обращения:\n\n"
@@ -220,10 +246,11 @@ async def anonymous_section_choice(message: Message):
     keep_identity = message.text == "Остаться не анонимным"
     state_peer = await vk_bot.state_dispenser.get(message.from_id)
     description = state_peer.payload.get("description", "") if state_peer else ""
+    topic = state_peer.payload.get("topic", "Вопрос") if state_peer else "Вопрос"
 
     try:
         ticket = await create_anonymous_ticket(
-            topic="Анонимное обращение",
+            topic=topic,
             description=description,
             vk_id=message.from_id,
             keep_identity=keep_identity,
@@ -237,24 +264,20 @@ async def anonymous_section_choice(message: Message):
                 "Администратор сможет ответить вам через VK."
                 if keep_identity
                 else "VK ID не сохранён. Ответ через VK на анонимные обращения не отправляется."
-            )
+            ),
+            keyboard=await _main_keyboard_for(message.from_id),
         )
 
-        # Уведомляем суперадмина о новой анонимной заявке
-        from core.vk_client import send_vk_message
-        await send_vk_message(
-            settings.VK_REPORT_ADMIN_ID,
-            f"🔒 Новая заявка из анонимного раздела #{ticket.id}\n"
-            f"{description[:200]}",
-        )
         await vk_bot.state_dispenser.delete(message.from_id)
 
     except Exception:
         logger.exception("Ошибка при создании анонимной заявки")
         await message.answer(
             "❌ Произошла ошибка при отправке обращения.\n"
-            "Пожалуйста, попробуйте позже."
+            "Пожалуйста, попробуйте позже.",
+            keyboard=await _main_keyboard_for(message.from_id),
         )
+        await vk_bot.state_dispenser.delete(message.from_id)
 
 
 @vk_bot.on.private_message(
@@ -263,15 +286,27 @@ async def anonymous_section_choice(message: Message):
 async def admin_panel(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
-        await message.answer("У вас нет доступа к админ-панели.\n\n"
-                              "По всем вопросам обращайтесь к главному администратору.")
+        await message.answer(
+            "У вас нет доступа к админ-панели.\n\n"
+            "По всем вопросам обращайтесь к главному администратору.",
+            keyboard=await _main_keyboard_for(message.from_id),
+        )
         return
 
     await BotCore.log_action(user, "admin_panel", "Открыта админ-панель")
     await message.answer(
         "Админ-панель\n\n"
         "Нажми «Сформировать отчет», чтобы получить файл в VK.",
-        keyboard=build_main_keyboard(False, True),
+        keyboard=build_admin_keyboard(),
+    )
+
+
+@vk_bot.on.private_message(text=["Обычное меню", "обычное меню"])
+async def regular_menu_handler(message: Message):
+    user = await BotCore.get_or_create_user(vk_id=message.from_id)
+    await message.answer(
+        _main_reply_text(),
+        keyboard=build_main_keyboard(await BotCore.is_admin(user)),
     )
 
 
@@ -292,7 +327,10 @@ async def admin_tickets_handler(message: Message):
     """Показать оператору заявки, доступные его отделу."""
     is_super, departments = await _admin_ticket_scope(message.from_id)
     if not is_super and not departments:
-        await message.answer("У вас нет доступа к заявкам администратора.")
+        await message.answer(
+            "У вас нет доступа к заявкам администратора.",
+            keyboard=await _main_keyboard_for(message.from_id),
+        )
         return
     async with async_session_maker() as session:
         stmt = (
@@ -301,16 +339,40 @@ async def admin_tickets_handler(message: Message):
         )
         if not is_super:
             stmt = stmt.where(Ticket.department_id.in_(departments))
+        count_stmt = select(func.count(Ticket.id)).where(
+            Ticket.status.not_in((TicketStatus.COMPLETED, TicketStatus.COMPLETED_AUTO))
+        )
+        total_count_stmt = select(func.count(Ticket.id))
+        if not is_super:
+            count_stmt = count_stmt.where(Ticket.department_id.in_(departments))
+            total_count_stmt = total_count_stmt.where(Ticket.department_id.in_(departments))
+        pending_count = await session.scalar(count_stmt)
+        total_count = await session.scalar(total_count_stmt)
         tickets = list((await session.scalars(stmt)).all())
     if not tickets:
-        await message.answer("Доступных заявок нет.", keyboard=build_main_keyboard(False, True))
+        await message.answer(
+            f"Всего доступных заявок: {total_count or 0}\n"
+            f"Незавершенных заявок: {pending_count or 0}\n"
+            "Доступных заявок нет.",
+            keyboard=build_admin_keyboard(),
+        )
         return
-    lines = ["Заявки (последние 20):"]
+    lines = [
+        f"Всего доступных заявок: {total_count or 0}",
+        f"Незавершенных заявок: {pending_count or 0}",
+        "Заявки (последние 20):",
+    ]
     for ticket in tickets:
-        lines.append(f"#{ticket.id} [{ticket.status.value}] {ticket.topic or 'Без темы'}")
+        description = (ticket.description or "Без описания").strip()
+        if len(description) > 500:
+            description = description[:500].rstrip() + "..."
+        lines.append(
+            f"\n#{ticket.id} [{ticket.status.value}] {ticket.topic or 'Без темы'}\n"
+            f"Описание: {description}"
+        )
     lines.append("\nОтвет: Ответ #12: текст ответа")
     lines.append("Статус: Статус #12: В обработке")
-    await message.answer("\n".join(lines), keyboard=build_main_keyboard(False, True))
+    await message.answer("\n".join(lines), keyboard=build_admin_keyboard())
 
 
 async def _operator_can_access(vk_id: int, ticket_id: int) -> bool:
@@ -326,36 +388,51 @@ async def _operator_can_access(vk_id: int, ticket_id: int) -> bool:
 async def admin_reply_handler(message: Message):
     match = re.match(r"^Ответ #(\d+):\s*(.+)$", message.text or "", re.DOTALL)
     if not match or not await _operator_can_access(message.from_id, int(match.group(1))):
-        await message.answer("Заявка не найдена или недоступна.")
+        await message.answer(
+            "Заявка не найдена или недоступна.",
+            keyboard=build_admin_keyboard(),
+        )
         return
     ticket_id, text = int(match.group(1)), match.group(2).strip()
     ticket, delivered = await reply_to_ticket(ticket_id, str(message.from_id), text)
     if ticket is None:
-        await message.answer("Заявка не найдена.")
+        await message.answer("Заявка не найдена.", keyboard=build_admin_keyboard())
         return
-    await message.answer("Ответ сохранён." + (" Уведомление поставлено в очередь VK." if delivered else ""))
+    await message.answer(
+        "Ответ сохранён." + (" Уведомление поставлено в очередь VK." if delivered else ""),
+        keyboard=build_admin_keyboard(),
+    )
 
 
 @vk_bot.on.private_message(RegexRule(r"^Статус #\d+: .+"))
 async def admin_status_handler(message: Message):
     match = re.match(r"^Статус #(\d+):\s*(.+)$", message.text or "", re.DOTALL)
     if not match or not await _operator_can_access(message.from_id, int(match.group(1))):
-        await message.answer("Заявка не найдена или недоступна.")
+        await message.answer(
+            "Заявка не найдена или недоступна.",
+            keyboard=build_admin_keyboard(),
+        )
         return
     try:
         new_status = TicketStatus(match.group(2).strip())
         ticket = await change_ticket_status(int(match.group(1)), new_status, str(message.from_id))
     except (ValueError, StatusTransitionError):
-        await message.answer("Неизвестный статус или недопустимый переход.")
+        await message.answer(
+            "Неизвестный статус или недопустимый переход.",
+            keyboard=build_admin_keyboard(),
+        )
         return
-    await message.answer("Статус заявки изменён." if ticket else "Заявка не найдена.")
+    await message.answer(
+        "Статус заявки изменён." if ticket else "Заявка не найдена.",
+        keyboard=build_admin_keyboard(),
+    )
 
 
 @vk_bot.on.private_message(text=["Сформировать отчет", "Сформировать отчет"])
 async def report_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
-        await message.answer("У вас нет доступа к отчетам.")
+        await message.answer("У вас нет доступа к отчетам.", keyboard=build_main_keyboard())
         return
 
     try:
@@ -377,17 +454,18 @@ async def report_handler(message: Message):
         await BotCore.log_action(user, "report_failed", "Ошибка при формировании отчёта")
         await message.answer(
             "Не удалось сформировать отчёт. Попробуйте ещё раз позже или обратитесь "
-            "к администратору."
+            "к администратору.",
+            keyboard=build_admin_keyboard(),
         )
         return
-    await message.answer("Отчет сформирован и отправлен.")
+    await message.answer("Отчет сформирован и отправлен.", keyboard=build_admin_keyboard())
 
 
 @vk_bot.on.private_message(text="Отчет по дате")
 async def report_by_date_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
-        await message.answer("У вас нет доступа к отчетам.")
+        await message.answer("У вас нет доступа к отчетам.", keyboard=build_main_keyboard())
         return
     await vk_bot.state_dispenser.set(message.from_id, ReportStates.WAITING_DATE)
     await message.answer("Введите дату в формате ДД.ММ.ГГГГ (например: 31.08.2026)")
@@ -415,20 +493,26 @@ async def report_by_date_input(message: Message):
             filename,
         )
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за {parsed} (по дате)")
-        await message.answer(f"Отчет за {parsed:%d.%m.%Y} сформирован и отправлен.")
+        await vk_bot.state_dispenser.delete(message.from_id)
+        await message.answer(
+            f"Отчет за {parsed:%d.%m.%Y} сформирован и отправлен.",
+            keyboard=build_admin_keyboard(),
+        )
     except Exception:
         logger.exception("Ошибка при формировании отчёта за %s", parsed)
         await BotCore.log_action(user, "report_failed", f"Ошибка при формировании отчёта за {parsed}")
         await message.answer(
-            "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал."
+            "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал.",
+            keyboard=build_admin_keyboard(),
         )
+        await vk_bot.state_dispenser.delete(message.from_id)
 
 
 @vk_bot.on.private_message(text="Отчет за период")
 async def report_by_period_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
-        await message.answer("У вас нет доступа к отчетам.")
+        await message.answer("У вас нет доступа к отчетам.", keyboard=build_main_keyboard())
         return
     await vk_bot.state_dispenser.set(message.from_id, ReportStates.WAITING_DATE_FROM)
     await message.answer(
@@ -472,7 +556,11 @@ async def report_by_period_input(message: Message):
             filename,
         )
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за период {date_from} - {date_to}")
-        await message.answer(f"Отчет за период с {date_from:%d.%m.%Y} по {date_to:%d.%m.%Y} сформирован и отправлен.")
+        await vk_bot.state_dispenser.delete(message.from_id)
+        await message.answer(
+            f"Отчет за период с {date_from:%d.%m.%Y} по {date_to:%d.%m.%Y} сформирован и отправлен.",
+            keyboard=build_admin_keyboard(),
+        )
     except Exception:
         logger.exception(
             "Ошибка при формировании отчёта за период %s - %s",
@@ -485,8 +573,20 @@ async def report_by_period_input(message: Message):
             f"Ошибка при формировании отчёта за период {date_from} - {date_to}",
         )
         await message.answer(
-            "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал."
+            "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал.",
+            keyboard=build_admin_keyboard(),
         )
+        await vk_bot.state_dispenser.delete(message.from_id)
+
+
+@vk_bot.on.private_message()
+async def fallback_handler(message: Message):
+    """Возвращает пользователя в основное меню для неизвестных сообщений."""
+    touch_heartbeat()
+    await message.answer(
+        "Выберите действие в основном меню.",
+        keyboard=await _main_keyboard_for(message.from_id),
+    )
 
 
 if __name__ == "__main__":

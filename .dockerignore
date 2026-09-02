@@ -60,8 +60,6 @@ docker-compose.tailscale.override.yml
 *.crt
 tests/
 scripts/
-alembic/
-alembic.ini
 .ruff.toml
 mypy.ini
 pytest.ini
