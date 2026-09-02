@@ -11,12 +11,34 @@ from core.config import settings
 
 engine = create_async_engine(settings.database_url, echo=False, poolclass=pool.NullPool)
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-DATABASE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Строгая валидация имени базы данных.
+# - Начинается с буквы или подчёркивания
+# - Только буквы, цифры, подчёркивания
+# - Максимум 63 символа (лимит PostgreSQL)
+# - Не начинается с цифры (невозможно в PostgreSQL anyway)
+# - Не содержит пробелов, дефисов, спецсимволов
+DATABASE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+
+# Зарезервированные имена PostgreSQL, которые нельзя использовать
+POSTGRES_RESERVED_DB_NAMES = {
+    "postgres", "template0", "template1",
+}
 
 
 async def ensure_database_exists(max_retries: int = 10, retry_delay: float = 2.0) -> None:
     if not DATABASE_NAME_PATTERN.fullmatch(settings.DB_NAME):
-        raise ValueError("DB_NAME содержит недопустимые символы")
+        raise ValueError(
+            f"DB_NAME содержит недопустимые символы: {settings.DB_NAME!r}. "
+            "Разрешены только буквы, цифры и подчёркивания (макс. 63 символа)."
+        )
+
+    # Защита от использования зарезервированных имён PostgreSQL
+    if settings.DB_NAME.lower() in POSTGRES_RESERVED_DB_NAMES:
+        raise ValueError(
+            f"DB_NAME '{settings.DB_NAME}' — зарезервированное имя PostgreSQL. "
+            "Используйте другое имя базы данных."
+        )
 
     last_error = None
 

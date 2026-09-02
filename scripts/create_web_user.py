@@ -1,7 +1,9 @@
-#!/usr/bin/env python3
+    #!/usr/bin/env python3
 """Создание/обновление пользователя веб-админки (таблица web_users).
 
-Пароль хранится только в виде PBKDF2-хеша.
+Пароль хранится только в виде хеша:
+- Argon2id (предпочтительный, требует argon2-cffi)
+- PBKDF2-HMAC-SHA256 (fallback, если argon2-cffi не установлен)
 
 Примеры:
     python scripts/create_web_user.py --username admin --password "S3cret!" --role SUPERADMIN

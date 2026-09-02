@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <meta name="csrf-token" content="{{ csrf_token|default('') }}">
     <link rel="stylesheet" href="/static/style.css">
-    <script>
+    <script nonce="{{ request.state.script_nonce|default('') }}">
         // Применяем тему до отрисовки, чтобы не было «вспышки» светлой темы
         (function () {
             var theme = localStorage.getItem('theme');
@@ -18,49 +18,7 @@
             }
         })();
     </script>
-    {% block extra_css %}{% endblock %}
-</head>
-<body>
-    <div class="container">
-        {% if user %}
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <div class="brand">
-                    <div class="monogram">SB</div>
-                    <div>
-                        <div class="brand-name">Student Bot</div>
-                        <div class="brand-sub">Админ-панель</div>
-                    </div>
-                </div>
-                <div class="user-info">
-                    <span>{{ user.username or 'Admin' }}</span>
-                    <form method="post" action="/auth/logout" style="display:inline;">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
-                        <button type="submit" class="btn-logout">Выйти</button>
-                    </form>
-                </div>
-            </div>
-            <div class="nav-label">Разделы</div>
-            <nav class="sidebar-nav">
-                <a href="/" class="nav-link {% if active == 'dashboard' %}active{% endif %}"><span class="ico">◆</span>Дашборд</a>
-                <a href="/tickets/" class="nav-link {% if active == 'tickets' %}active{% endif %}"><span class="ico">▤</span>Заявки</a>
-                <a href="/admin/admins/" class="nav-link {% if active == 'admins' %}active{% endif %}"><span class="ico">◍</span>Админы</a>
-                <a href="/knowledge/" class="nav-link {% if active == 'knowledge' %}active{% endif %}"><span class="ico">▣</span>База знаний</a>
-                <a href="/faq/" class="nav-link {% if active == 'faq' %}active{% endif %}"><span class="ico">◈</span>FAQ</a>
-                <a href="/events/" class="nav-link {% if active == 'events' %}active{% endif %}"><span class="ico">◉</span>События</a>
-                <a href="/logs/" class="nav-link {% if active == 'logs' %}active{% endif %}"><span class="ico">≡</span>Логи</a>
-            </nav>
-            <button class="theme-toggle" id="theme-toggle" type="button" title="Переключить тему">
-                <span id="theme-icon">☾</span>
-                <span id="theme-label">Тёмная тема</span>
-            </button>
-        </aside>
-        {% endif %}
-        <main class="main-content">
-            {% block content %}{% endblock %}
-        </main>
-    </div>
-    <script>
+    <script nonce="{{ request.state.script_nonce|default('') }}">
         // Переключение светлой/тёмной темы с сохранением выбора
         (function () {
             var toggle = document.getElementById('theme-toggle');
@@ -106,5 +64,8 @@
         })();
     </script>
     {% block extra_js %}{% endblock %}
+    </head>
+<body>
+    {% block content %}{% endblock %}
 </body>
 </html>

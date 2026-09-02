@@ -384,8 +384,16 @@ def mask_anonymous_data(full_name: str | None, is_anonymous: bool) -> str:
 # === Создание анонимных заявок ===
 
 
-async def create_anonymous_ticket(topic: str, description: str) -> Ticket:
-    """Создать анонимную заявку (согласно ТЗ: user_id=NULL, department_id=NULL, статус=Анонимное).
+async def create_anonymous_ticket(
+    topic: str,
+    description: str,
+    vk_id: int | None = None,
+    keep_identity: bool = False,
+) -> Ticket:
+    """Создать обращение из анонимного раздела.
+
+    При keep_identity сохраняется пользователь, чтобы администратор мог
+    ответить ему через VK. Иначе обращение полностью анонимно.
 
     Только суперадмин видит такие заявки в веб-панели.
 
@@ -397,13 +405,21 @@ async def create_anonymous_ticket(topic: str, description: str) -> Ticket:
         Созданная заявка.
     """
     async with ticket_transaction() as session:
+        user = None
+        if keep_identity and vk_id is not None:
+            user = await session.scalar(select(User).where(User.vk_id == vk_id))
+            if user is None:
+                user = User(vk_id=vk_id)
+                session.add(user)
+                await session.flush()
+
         ticket = Ticket(
-            user_id=None,           # аноним
+            user_id=user.id if user else None,
             department_id=None,     # без отдела
             topic=topic,
             description=description,
-            status=TicketStatus.ANONYMOUS,
-            is_anonymous=True,
+            status=TicketStatus.NEW if keep_identity else TicketStatus.ANONYMOUS,
+            is_anonymous=not keep_identity,
             auto_closed=False,
         )
         session.add(ticket)
@@ -415,7 +431,7 @@ async def create_anonymous_ticket(topic: str, description: str) -> Ticket:
             ticket,
             MessageAuthorType.USER,
             description,
-            author_vk_id=None,  # аноним
+            author_vk_id=vk_id if keep_identity else None,
         )
 
         # Журналируем создание

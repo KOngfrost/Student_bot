@@ -1,5 +1,4 @@
 import os
-import sys
 from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
@@ -65,11 +64,15 @@ class Settings:
 
     # === Web admin panel ===
     # https_only для session-cookie:
-    #   false (по умолчанию) — доступ по http://localhost или http://tailscale-IP
-    #     (SSH-туннель / Tailscale без HTTPS): кука работает по HTTP.
-    #   true — панель за Nginx/Caddy с TLS или через Tailscale HTTPS
-    #     (tailscale serve): кука помечается Secure и шлётся только по HTTPS.
-    SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "false").lower() in ("1", "true", "yes")
+    #   true (по умолчанию в production) — панель за Nginx/Caddy с TLS или
+    #     через Tailscale HTTPS (tailscale serve): кука помечается Secure
+    #     и шлётся только по HTTPS.
+    #   false (по умолчанию в development) — доступ по http://localhost или
+    #     http://tailscale-IP (SSH-туннель / Tailscale без HTTPS).
+    #     Кука работает по HTTP (только для разработки).
+    _is_prod = APP_ENV not in dev_environments
+    _session_https_default = "true" if _is_prod else "false"
+    SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", _session_https_default).lower() in ("1", "true", "yes")
 
     # Доверенные reverse-proxy (IP через запятую), от которых разрешено
     # принимать настоящий IP клиента из заголовка X-Forwarded-For.

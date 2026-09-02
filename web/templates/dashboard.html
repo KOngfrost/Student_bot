@@ -97,7 +97,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ request.state.script_nonce|default('') }}">
 // Плавный счётчик: числа в стат-карточках «набегают» от 0 до значения
 (function () {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;

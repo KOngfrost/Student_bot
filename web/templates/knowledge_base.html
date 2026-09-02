@@ -107,7 +107,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ request.state.script_nonce|default('') }}">
 function openModal() {
     document.getElementById('modal').classList.add('active');
 }

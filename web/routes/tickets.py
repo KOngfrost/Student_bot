@@ -24,6 +24,7 @@ from core.ticket_service import (
     reply_to_ticket,
 )
 from web.dependencies import get_admin_scope, require_auth, require_superadmin, require_writer
+from web.routes.auth import require_crud_rate_limit
 from web.security.csrf import get_csrf_token
 from web.templating import templates
 
@@ -175,7 +176,13 @@ async def reply_ticket(ticket_id: int, request: Request, user: dict = Depends(re
 
     Форма: message (обязательно), complete=on (завершить заявку).
     Сохраняет сообщение, обновляет response_text, статус, шлёт VK-уведомление.
+    
+    Безопасность:
+    - CSRF: защищён middleware CSRFMiddleware
+    - Rate limiting: не более 20 запросов на IP за 5 минут
+    - IDOR: проверка department_id через БД
     """
+    require_crud_rate_limit(request)
     form = await request.form()
     message = str(form.get("message", "")).strip()
     complete = form.get("complete") == "on"
@@ -201,7 +208,15 @@ async def reply_ticket(ticket_id: int, request: Request, user: dict = Depends(re
 
 @router.post("/{ticket_id}/status")
 async def set_ticket_status(ticket_id: int, request: Request, user: dict = Depends(require_writer)):
-    """Смена статуса заявки с валидацией переходов."""
+    """Смена статуса заявки с валидацией переходов.
+    
+    Безопасность:
+    - CSRF: защищён middleware CSRFMiddleware
+    - Rate limiting: не более 20 запросов на IP за 5 минут
+    - IDOR: проверка department_id через БД
+    - Валидация переходов статусов через ticket_service
+    """
+    require_crud_rate_limit(request)
     form = await request.form()
     new_status_raw = str(form.get("status", ""))
 
@@ -231,7 +246,15 @@ async def set_ticket_status(ticket_id: int, request: Request, user: dict = Depen
 
 @router.post("/{ticket_id}/assign")
 async def assign_ticket(ticket_id: int, request: Request, user: dict = Depends(require_superadmin)):
-    """Передача заявки другому отделу (только суперадмин)."""
+    """Передача заявки другому отделу (только суперадмин).
+    
+    Безопасность:
+    - CSRF: защищён middleware CSRFMiddleware
+    - Rate limiting: не более 20 запросов на IP за 5 минут
+    - Только суперадмин может передавать заявки
+    - IDOR: проверка department_id через БД
+    """
+    require_crud_rate_limit(request)
     form = await request.form()
     try:
         department_id = int(form.get("department_id", 0))

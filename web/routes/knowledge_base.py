@@ -15,7 +15,7 @@ import logging
 
 from core.database import async_session_maker
 from core.models import KnowledgeBase, Department
-from web.dependencies import is_superadmin, require_writer
+from web.dependencies import get_admin_scope, require_writer
 from web.templating import templates
 from web.security.middleware import sanitize_html
 
@@ -42,11 +42,12 @@ async def knowledge_base_page(request: Request, user=Depends(require_admin)):
 
     try:
         async with async_session_maker() as session:
-            depts_result = await session.execute(select(Department))
+            is_super, dept_id = await get_admin_scope(session, user)
+            depts_stmt = select(Department)
+            if not is_super:
+                depts_stmt = depts_stmt.where(Department.id == dept_id)
+            depts_result = await session.execute(depts_stmt)
             departments = depts_result.scalars().all()
-
-            is_super = is_superadmin(user)
-            dept_id = user.get("department_id")
 
             if is_super:
                 kb_result = await session.execute(
@@ -100,6 +101,10 @@ async def add_knowledge_base(request: Request, user=Depends(require_writer)):
 
     try:
         async with async_session_maker() as session:
+            is_super, dept_id = await get_admin_scope(session, user)
+            if not is_super and dept_id != department_id:
+                request.session["error"] = "Нет прав для работы с этим отделом"
+                return RedirectResponse(url="/knowledge/", status_code=302)
             kb = KnowledgeBase(
                 department_id=department_id,
                 keywords=keywords,
@@ -126,8 +131,7 @@ async def delete_knowledge_base(request: Request, kb_id: int, user=Depends(requi
                 return RedirectResponse(url="/knowledge/", status_code=302)
 
             # Проверяем права: админ видит только записи своего отдела
-            is_super = is_superadmin(user)
-            dept_id = user.get("department_id")
+            is_super, dept_id = await get_admin_scope(session, user)
 
             if not is_super and kb.department_id != dept_id:
                 request.session["error"] = "Нет прав для удаления этой записи"

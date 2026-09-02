@@ -16,7 +16,7 @@ import logging
 
 from core.database import async_session_maker
 from core.models import Event, Department
-from web.dependencies import is_superadmin, require_writer
+from web.dependencies import get_admin_scope, require_writer
 from web.templating import templates
 from web.security.middleware import sanitize_html
 
@@ -43,11 +43,12 @@ async def events_page(request: Request, user=Depends(require_admin)):
 
     try:
         async with async_session_maker() as session:
-            depts_result = await session.execute(select(Department))
+            is_super, dept_id = await get_admin_scope(session, user)
+            depts_stmt = select(Department)
+            if not is_super:
+                depts_stmt = depts_stmt.where(Department.id == dept_id)
+            depts_result = await session.execute(depts_stmt)
             departments = depts_result.scalars().all()
-
-            is_super = is_superadmin(user)
-            dept_id = user.get("department_id")
 
             if is_super:
                 events_result = await session.execute(
@@ -100,6 +101,10 @@ async def add_event(request: Request, user=Depends(require_writer)):
             event_date = event_date.replace(tzinfo=timezone.utc)
 
         async with async_session_maker() as session:
+            is_super, dept_id = await get_admin_scope(session, user)
+            if not is_super and dept_id != department_id:
+                request.session["error"] = "Нет прав для работы с этим отделом"
+                return RedirectResponse(url="/events/", status_code=302)
             event = Event(
                 department_id=department_id,
                 title=title,
@@ -127,8 +132,7 @@ async def delete_event(request: Request, event_id: int, user=Depends(require_wri
                 return RedirectResponse(url="/events/", status_code=302)
 
             # Проверяем права
-            is_super = is_superadmin(user)
-            dept_id = user.get("department_id")
+            is_super, dept_id = await get_admin_scope(session, user)
 
             if not is_super and event.department_id != dept_id:
                 request.session["error"] = "Нет прав для удаления этого события"

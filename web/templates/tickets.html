@@ -142,7 +142,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ request.state.script_nonce|default('') }}">
 window.CSRF_FORM_TOKEN = '{{ csrf_token }}';
 window.CURRENT_ROLE = '{{ user.role if user else "" }}';
 window.STATUS_CHOICES = {{ status_choices | tojson }};

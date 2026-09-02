@@ -1,6 +1,5 @@
 """Тесты outbox-доставки VK-уведомлений (надёжность «ответ в VK после commit»)."""
 
-import pytest
 from sqlalchemy import select
 
 from core.models import Ticket, TicketStatus, User, VkOutbox
@@ -117,9 +116,6 @@ async def test_reply_anonymous_ticket_no_outbox(db_session_maker, monkeypatch):
     assert scheduled is False
 
     async with db_session_maker() as session:
-        count = (
-            await session.scalar(select(VkOutbox).where(VkOutbox.vk_id.is_(None)))
-        )
         # У анонимных user_id в заявке может быть NULL — outbox вообще не должен появиться
         all_outbox = (await session.scalars(select(VkOutbox))).all()
         assert len(all_outbox) == 0

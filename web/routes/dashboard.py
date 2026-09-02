@@ -57,12 +57,15 @@ async def dashboard(request: Request, user: dict = Depends(require_auth)):
             new_tickets = await session.scalar(stmt) or 0
 
             # Последние заявки
-            recent_result = await session.execute(
+            recent_stmt = (
                 select(Ticket)
                 .options(selectinload(Ticket.user), selectinload(Ticket.department))
                 .order_by(Ticket.created_at.desc())
                 .limit(10)
             )
+            if dept_filter is not None:
+                recent_stmt = recent_stmt.where(Ticket.department_id == dept_filter)
+            recent_result = await session.execute(recent_stmt)
             recent_tickets = recent_result.scalars().all()
     except Exception as e:
         logger.error("Не удалось загрузить статистику: %s", e)

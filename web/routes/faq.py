@@ -15,7 +15,7 @@ import logging
 
 from core.database import async_session_maker
 from core.models import FAQNode, Department
-from web.dependencies import is_superadmin, require_writer
+from web.dependencies import get_admin_scope, require_writer
 from web.templating import templates
 from web.security.middleware import sanitize_html
 
@@ -42,14 +42,23 @@ async def faq_page(request: Request, user=Depends(require_admin)):
 
     try:
         async with async_session_maker() as session:
-            faq_result = await session.execute(
+            is_super, dept_id = await get_admin_scope(session, user)
+            faq_stmt = (
                 select(FAQNode)
                 .options(selectinload(FAQNode.department))
                 .order_by(FAQNode.department_id, FAQNode.order_index)
             )
+            if not is_super:
+                faq_stmt = faq_stmt.where(FAQNode.department_id == dept_id)
+            faq_result = await session.execute(
+                faq_stmt
+            )
             faq_nodes = faq_result.scalars().all()
 
-            depts_result = await session.execute(select(Department))
+            depts_stmt = select(Department)
+            if not is_super:
+                depts_stmt = depts_stmt.where(Department.id == dept_id)
+            depts_result = await session.execute(depts_stmt)
             departments = depts_result.scalars().all()
     except Exception as e:
         db_error = True
@@ -81,13 +90,12 @@ async def add_faq(request: Request, user=Depends(require_writer)):
     is_final = form.get("is_final") == "on"
     final_answer = sanitize_html(form.get("final_answer", "")) if is_final else None
 
-    # Проверка прав (IDOR): админ отдела создаёт FAQ только в своём отделе
-    if not is_superadmin(user) and user.get("department_id") != department_id:
-        request.session["error"] = "Нет прав для работы с этим отделом"
-        return RedirectResponse(url="/faq/", status_code=302)
-
     try:
         async with async_session_maker() as session:
+            is_super, dept_id = await get_admin_scope(session, user)
+            if not is_super and dept_id != department_id:
+                request.session["error"] = "Нет прав для работы с этим отделом"
+                return RedirectResponse(url="/faq/", status_code=302)
             max_order = await session.scalar(
                 select(func.coalesce(func.max(FAQNode.order_index), 0))
                 .where(FAQNode.department_id == department_id)
@@ -122,7 +130,8 @@ async def delete_faq(request: Request, node_id: int, user=Depends(require_writer
                 return RedirectResponse(url="/faq/", status_code=302)
 
             # IDOR: админ отдела может удалять только FAQ своего отдела
-            if not is_superadmin(user) and user.get("department_id") != node.department_id:
+            is_super, dept_id = await get_admin_scope(session, user)
+            if not is_super and dept_id != node.department_id:
                 request.session["error"] = "Нет прав для удаления этого элемента FAQ"
                 return RedirectResponse(url="/faq/", status_code=302)
 

@@ -4,12 +4,19 @@
 - SUPERADMIN: видит все отделы, может всё (включая передачу заявок).
 - DEPARTMENT_ADMIN: видит и изменяет заявки/контент только своего отдела.
 - VIEWER: видит всё, но не может изменять данные.
+
+Безопасность:
+- department_id для DEPARTMENT_ADMIN проверяется через БД (web_users),
+  а не из сессии, чтобы предотвратить горизонтальную эскалацию прав.
 """
 
 from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.models import Admin, UserRole, WebRole
+from core.models import Admin, UserRole, WebRole, WebUser
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_current_user(request: Request) -> dict | None:
@@ -84,12 +91,41 @@ async def get_admin_scope(session: AsyncSession, user: dict) -> tuple[bool, int 
     - суперадмин/VIEWER: (True, None) — видят все отделы;
     - админ отдела: (False, department_id) — видят только свой отдел.
 
-    Поддерживает и старую сессию с user_id (запись Admin из VK-админов).
+    БЕЗОПАСНОСТЬ: department_id для DEPARTMENT_ADMIN проверяется через БД
+    (таблица web_users), а не из сессии. Это предотвращает горизонтальную
+    эскалацию прав при компрометации сессионного cookie.
     """
     role = role_of(user)
     if role == WebRole.SUPERADMIN or role == WebRole.VIEWER:
         return True, None
     if role == WebRole.DEPARTMENT_ADMIN:
+        # Проверяем department_id через БД, а не из сессии
+        web_user_id = user.get("web_user_id")
+        if web_user_id:
+            try:
+                web_user = await session.get(WebUser, web_user_id)
+                if web_user and web_user.is_active:
+                    return False, web_user.department_id
+                # Если пользователь не найден или неактивен — ограничиваем доступ
+                return False, None
+            except Exception:
+                logger.warning(
+                    "Не удалось проверить department_id через БД, "
+                    "возвращаю None (ограниченный доступ)"
+                )
+                return False, None
+        # web_user_id отсутствует — проверяем legacy-пользователя (Admin из VK)
+        admin_user_id = user.get("user_id")
+        if admin_user_id:
+            admin = await session.get(Admin, admin_user_id)
+            if admin:
+                return False, admin.department_id
+        # fallback: используем department_id из сессии с предупреждением
+        logger.warning(
+            "DEPARTMENT_ADMIN без web_user_id: department_id из сессии "
+            "(user_id=%s). Рекомендуется создать постоянного пользователя.",
+            user.get("user_id", "unknown"),
+        )
         return False, user.get("department_id")
 
     # Обратная совместимость: сессии, созданные до web_users

@@ -15,7 +15,8 @@ from datetime import datetime
 import logging
 
 from core.database import async_session_maker
-from core.models import Log
+from core.models import Admin, Log
+from web.dependencies import get_admin_scope
 from web.templating import templates
 from web.security.middleware import escape_for_csv, sanitize_csv_field
 
@@ -50,18 +51,26 @@ async def logs_page(
 
     try:
         async with async_session_maker() as session:
+            is_super, dept_id = await get_admin_scope(session, user)
+            allowed_user_ids = select(Admin.user_id).where(Admin.department_id == dept_id)
+
             # Общее количество для пагинации
             from sqlalchemy import func
             count_stmt = select(func.count(Log.id))
+            if not is_super:
+                count_stmt = count_stmt.where(Log.user_id.in_(allowed_user_ids))
             total = (await session.scalar(count_stmt)) or 0
 
-            logs_result = await session.execute(
+            logs_stmt = (
                 select(Log)
                 .options(selectinload(Log.user))
                 .order_by(Log.created_at.desc())
                 .offset(offset)
                 .limit(LOGS_PER_PAGE)
             )
+            if not is_super:
+                logs_stmt = logs_stmt.where(Log.user_id.in_(allowed_user_ids))
+            logs_result = await session.execute(logs_stmt)
             logs = logs_result.scalars().all()
     except Exception as e:
         db_error = True
@@ -95,12 +104,17 @@ async def export_logs(user=Depends(require_admin)):
     """
     try:
         async with async_session_maker() as session:
-            logs_result = await session.execute(
+            is_super, dept_id = await get_admin_scope(session, user)
+            allowed_user_ids = select(Admin.user_id).where(Admin.department_id == dept_id)
+            logs_stmt = (
                 select(Log)
                 .options(selectinload(Log.user))
                 .order_by(Log.created_at.desc())
                 .limit(10000)  # Лимит для экспорта
             )
+            if not is_super:
+                logs_stmt = logs_stmt.where(Log.user_id.in_(allowed_user_ids))
+            logs_result = await session.execute(logs_stmt)
             logs = logs_result.scalars().all()
     except Exception:
         logs = []

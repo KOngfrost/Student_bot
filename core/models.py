@@ -1,12 +1,78 @@
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, DateTime, Date,
-    ForeignKey, Enum as SAEnum, UniqueConstraint, Index, CheckConstraint
+    ForeignKey, Enum as SAEnum, UniqueConstraint, Index, CheckConstraint, event
 )
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 import enum
+import re
+
 
 Base = declarative_base()
+
+
+# ==========================================
+# Автоматическая XSS-санитизация на уровне моделей
+# ==========================================
+# Event listeners, которые автоматически санитизируют пользовательский ввод
+# перед записью в БД. Это проактивная защита, дополняющая экранирование
+# в Jinja2-шаблонах.
+
+_XSS_PATTERNS = [
+    (re.compile(r'<script[^>]*>', re.IGNORECASE), '[SCRIPT]'),
+    (re.compile(r'<script\s*/>', re.IGNORECASE), '[SCRIPT]'),
+    (re.compile(r'javascript\s*:', re.IGNORECASE), '[JAVASCRIPT]'),
+    (re.compile(r'on\w+\s*=', re.IGNORECASE), '[EVENT]'),
+    (re.compile(r'<iframe[^>]*>', re.IGNORECASE), '[IFRAME]'),
+    (re.compile(r'<object[^>]*>', re.IGNORECASE), '[OBJECT]'),
+    (re.compile(r'<embed[^>]*>', re.IGNORECASE), '[EMBED]'),
+    (re.compile(r'<form[^>]*>', re.IGNORECASE), '[FORM]'),
+    (re.compile(r'<img[^>]*\bon\w+\s*=', re.IGNORECASE), '[IMG_EVENT]'),
+    (re.compile(r'<svg[^>]*\bon\w+\s*=', re.IGNORECASE), '[SVG_EVENT]'),
+    (re.compile(r'<video[^>]*\bon\w+\s*=', re.IGNORECASE), '[VIDEO_EVENT]'),
+    (re.compile(r'<audio[^>]*\bon\w+\s*=', re.IGNORECASE), '[AUDIO_EVENT]'),
+]
+
+
+def sanitize_xss(value: str) -> str:
+    """Автоматическая санитизация XSS-паттернов в строке.
+    
+    Заменяет опасные паттерны на безопасные заглушки.
+    Используется как дополнительный слой защиты поверх экранирования
+    Jinja2-шаблонов.
+    """
+    if not value or not isinstance(value, str):
+        return value
+    
+    for pattern, replacement in _XSS_PATTERNS:
+        value = pattern.sub(replacement, value)
+    
+    return value
+
+
+@event.listens_for(Text, "before_insert", propagate=True)
+@event.listens_for(Text, "before_update", propagate=True)
+def sanitize_text_columns(target, value, oldvalue, initiator):
+    """Автоматическая санитизация всех Text-колонок перед записью.
+    
+    Применяется ко всем моделям, использующим Text-колонки:
+    - Ticket.description
+    - Ticket.topic
+    - Ticket.response_text
+    - TicketMessage.message
+    - Log.details
+    и др.
+    """
+    # Получаем имя колонки из initiator
+    if initiator is not None:
+        col_name = initiator.key
+        # Санитизируем только текстовые поля с пользовательским вводом
+        if col_name in ("description", "topic", "message", "response_text", 
+                        "details", "answer", "question", "final_answer",
+                        "keywords", "title", "button_text"):
+            sanitized = sanitize_xss(target.__dict__.get(col_name))
+            if sanitized != target.__dict__.get(col_name):
+                target.__dict__[col_name] = sanitized
 
 
 class UserRole(str, enum.Enum):

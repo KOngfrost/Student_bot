@@ -17,6 +17,7 @@ import logging
 from core.database import async_session_maker
 from core.models import User, Admin, Department, UserRole
 from web.dependencies import is_superadmin
+from web.routes.auth import require_crud_rate_limit
 from web.templating import templates
 from web.security.csrf import get_csrf_token
 from web.security.middleware import sanitize_html
@@ -120,10 +121,12 @@ async def add_admin(request: Request, user=Depends(require_admin)):
 
     Безопасность:
     - CSRF: защищён middleware CSRFMiddleware (токен из сессии)
+    - Rate limiting: не более 20 запросов на IP за 5 минут
     - Только суперадмин может назначать роль superadmin
     - Обычный админ может назначать только роль admin
     - Данные из форм санитизируются
     """
+    require_crud_rate_limit(request)
     form = await request.form()
     vk_id = int(form.get("vk_id", 0))
     full_name = sanitize_html(form.get("full_name", ""))
@@ -182,9 +185,11 @@ async def delete_admin(request: Request, admin_id: int, user=Depends(require_adm
     """Удаление администратора (POST с CSRF-токеном и подтверждением).
 
     Безопасность:
+    - Rate limiting: не более 20 запросов на IP за 5 минут
     - Только суперадмин может удалять обычных админов
     - Нельзя удалить самого себя и суперадмина
     """
+    require_crud_rate_limit(request)
     if not is_superadmin(user):
         request.session["error"] = "Только суперадмин может удалять администраторов"
         return RedirectResponse(url="/admin/admins/", status_code=302)

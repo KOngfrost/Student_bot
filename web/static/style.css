@@ -1,31 +1,31 @@
 /* ============================================================
    Student Bot Admin — «Тёплая канцелярия»
-   Авторская тема: бумажный фон, хвойный сайдбар,
-   терракотовый акцент. Без градиентов-сиропа.
+    Авторская тема: розово-белая рабочая область,
+    чёрный сайдбар и розовые акценты.
    ============================================================ */
 
 /* ---------- Дизайн-токены ---------- */
 :root {
-    --paper: #f4f1ea;
-    --surface: #fffdf8;
-    --surface-2: #efece3;
+    --paper: #fff5f8;
+    --surface: #ffffff;
+    --surface-2: #ffe8ef;
 
-    --ink: #20261f;
-    --ink-soft: #4c554a;
-    --ink-faint: #8a9184;
+    --ink: #1d171a;
+    --ink-soft: #66545b;
+    --ink-faint: #9e858e;
 
-    --line: #ddd7c8;
-    --line-strong: #c8c1ae;
+    --line: #f0d5de;
+    --line-strong: #dcaebb;
 
-    --pine: #1d3329;
-    --pine-deep: #142620;
-    --pine-line: rgba(255, 253, 248, 0.09);
-    --pine-text: #b9c4b6;
-    --pine-text-bright: #f2f5ee;
+    --pine: #171116;
+    --pine-deep: #0d090c;
+    --pine-line: rgba(255, 255, 255, 0.12);
+    --pine-text: #d5aeba;
+    --pine-text-bright: #fff6f8;
 
-    --accent: #c05b2e;
-    --accent-deep: #a34a22;
-    --accent-wash: #f6e3d7;
+    --accent: #e54878;
+    --accent-deep: #bd2858;
+    --accent-wash: #ffe0e9;
 
     --ok: #3d7a55;
     --ok-wash: #e2ecdd;
@@ -36,9 +36,9 @@
     --info: #33628c;
     --info-wash: #dde8ef;
 
-    --shadow-1: 0 1px 2px rgba(48, 42, 30, 0.07);
-    --shadow-2: 0 3px 10px rgba(48, 42, 30, 0.09);
-    --shadow-3: 0 14px 40px rgba(35, 30, 20, 0.22);
+    --shadow-1: 0 1px 2px rgba(55, 20, 34, 0.08);
+    --shadow-2: 0 3px 10px rgba(55, 20, 34, 0.12);
+    --shadow-3: 0 14px 40px rgba(17, 8, 12, 0.28);
 
     --r-sm: 6px;
     --r-md: 10px;
@@ -50,26 +50,26 @@
 
 /* Тёмная тема — «ночной офис» */
 [data-theme="dark"] {
-    --paper: #171b17;
-    --surface: #20261f;
-    --surface-2: #2a3128;
+    --paper: #160f13;
+    --surface: #21171c;
+    --surface-2: #302028;
 
-    --ink: #e8e6dc;
-    --ink-soft: #b3b8ab;
-    --ink-faint: #7d8477;
+    --ink: #fff0f4;
+    --ink-soft: #dfbbc7;
+    --ink-faint: #a77c8a;
 
-    --line: #333b30;
-    --line-strong: #46503f;
+    --line: #4d303c;
+    --line-strong: #714657;
 
-    --pine: #121814;
-    --pine-deep: #0d1210;
-    --pine-line: rgba(255, 253, 248, 0.08);
-    --pine-text: #97a394;
-    --pine-text-bright: #e8e6dc;
+    --pine: #090609;
+    --pine-deep: #050305;
+    --pine-line: rgba(255, 240, 244, 0.12);
+    --pine-text: #c792a5;
+    --pine-text-bright: #fff0f4;
 
-    --accent: #d97a48;
-    --accent-deep: #c05b2e;
-    --accent-wash: rgba(217, 122, 72, 0.16);
+    --accent: #ff5f91;
+    --accent-deep: #e54878;
+    --accent-wash: rgba(255, 95, 145, 0.18);
 
     --ok-wash: rgba(90, 158, 112, 0.16);
     --bad-wash: rgba(200, 90, 74, 0.16);

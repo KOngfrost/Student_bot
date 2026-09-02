@@ -5,6 +5,7 @@
 import hashlib
 import logging
 import re
+import secrets
 import time
 from collections import defaultdict
 from typing import Optional
@@ -28,10 +29,13 @@ SECURITY_HEADERS = {
     "Pragma": "no-cache",
 }
 
-CONTENT_SECURITY_POLICY = (
+# CSP без 'unsafe-inline' — nonce добавляется динамически в middleware
+# 'unsafe-inline' удалён: он позволяет выполнение инлайнового JS, что
+# снижает защиту от XSS. Все скрипты должны быть подключены через nonce.
+CONTENT_SECURITY_POLICY_BASE = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "script-src 'self' 'nonce-{nonce}'; "
+    "style-src 'self' 'nonce-{nonce_style}' https://fonts.googleapis.com; "
     "font-src 'self' https://fonts.gstatic.com; "
     "img-src 'self' data:; "
     "frame-ancestors 'none'; "
@@ -39,15 +43,40 @@ CONTENT_SECURITY_POLICY = (
     "form-action 'self';"
 )
 
+# Публичное имя для проверок и кода, которому нужен базовый CSP-шаблон.
+CONTENT_SECURITY_POLICY = CONTENT_SECURITY_POLICY_BASE
+
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Добавляет заголовки безопасности к каждому ответу."""
+    """Добавляет заголовки безопасности к каждому ответу.
+    
+    Включает CSP с nonce для script-src и style-src.
+    Nonce генерируется для каждого запроса и передаётся через request.state
+    для использования в шаблонах.
+    """
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        # Генерируем nonce для script-src
+        script_nonce = secrets.token_urlsafe(16)
+        # Отдельный nonce для style-src (лучшая практика CSP)
+        style_nonce = secrets.token_urlsafe(16)
+        
+        # Сохраняем nonce в request.state для использования в шаблонах
+        request.state.script_nonce = script_nonce
+        request.state.style_nonce = style_nonce
+        
+        # Формируем CSP с nonce
+        csp = CONTENT_SECURITY_POLICY_BASE.format(
+            nonce=script_nonce,
+            nonce_style=style_nonce,
+        )
+        
         response = await call_next(request)
+        
         for header, value in SECURITY_HEADERS.items():
             response.headers[header] = value
-        response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+        response.headers["Content-Security-Policy"] = csp
+        
         # Скрываем заголовок Server
         if "Server" in response.headers:
             del response.headers["Server"]
@@ -243,9 +272,10 @@ def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
     if salt is None:
         salt = base64.b64encode(os.urandom(16)).decode()
 
+    password_digest = hashlib.sha256(password.encode("utf-8")).digest()
     hashed = hashlib.pbkdf2_hmac(
         "sha256",
-        password.encode("utf-8"),
+        password_digest,
         salt.encode("utf-8"),
         100_000,
     )
@@ -257,9 +287,10 @@ def verify_password(password: str, hashed: str, salt: str) -> bool:
     import base64
     import secrets
 
+    password_digest = hashlib.sha256(password.encode("utf-8")).digest()
     hashed_input = hashlib.pbkdf2_hmac(
         "sha256",
-        password.encode("utf-8"),
+        password_digest,
         salt.encode("utf-8"),
         100_000,
     )

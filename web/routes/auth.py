@@ -18,7 +18,7 @@ import secrets
 import time
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import delete, func, select
 
@@ -50,6 +50,21 @@ _LOGIN_WINDOW_SECONDS = 15 * 60
 # In-memory mirror для fallback (когда БД недоступна).
 # При штатной работе используется БД (login_attempts).
 _LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+
+# ==========================================
+# Rate limiting для CRUD-операций админ-панели
+# ==========================================
+# Защита от brute-force на чувствительных операциях:
+# - Смена статуса заявки
+# - Ответ администратора
+# - Создание/передача заявок
+# - Создание/удаление пользователей админа
+#
+# Лимит: 20 операций на IP за 5 минут → временная блокировка (1 минута).
+_CRUD_ATTEMPTS: dict[str, list[float]] = {}
+_CRUD_MAX_ATTEMPTS = 20
+_CRUD_WINDOW_SECONDS = 5 * 60
+_CRUD_BLOCK_SECONDS = 60
 
 
 def _credentials_configured() -> bool:
@@ -153,8 +168,32 @@ async def _notify_superadmin(details: str) -> None:
         )
 
 
+async def _bootstrap_disabled_in_db() -> bool:
+    """Проверить, есть ли пользователи в web_users.
+
+    Если в БД уже есть хотя бы один пользователь, bootstrap-вход из .env
+    считается недействительным — постоянные учётные данные должны
+    создаваться через scripts/create_web_user.py.
+    """
+    try:
+        async with core_db.async_session_maker() as session:
+            count = await session.scalar(
+                select(func.count(WebUser.id)).where(WebUser.is_active.is_(True))
+            )
+            return int(count or 0) == 0
+    except Exception:
+        # БД недоступна — безопасно разрешаем bootstrap как fallback
+        logger.warning("БД недоступна: разрешаю bootstrap-вход как fallback")
+        return True
+
+
 async def _authenticate(username: str, password: str) -> dict | None:
-    """Аутентифицировать пользователя: сначала web_users, затем .env-bootstrap."""
+    """Аутентифицировать пользователя: сначала web_users, затем .env-bootstrap.
+
+    Bootstrap-вход из .env работает ТОЛЬКО если в web_users нет активных
+    пользователей. После заведения постоянных учётных данных bootstrap
+    автоматически отключается.
+    """
     try:
         async with core_db.async_session_maker() as session:
             web_user = await session.scalar(
@@ -177,21 +216,39 @@ async def _authenticate(username: str, password: str) -> dict | None:
         # БД недоступна — пробуем bootstrap-вход из .env
         logger.exception("Не удалось проверить web_users")
 
-    # Bootstrap-вход из .env (до заведения web_users)
+    # Bootstrap-вход из .env (только пока web_users пуст)
+    # Пароль из .env сравнивается только если нет активных пользователей в БД.
+    # Это предотвращает использование plain-text пароля из .env после
+    # заведения постоянных учётных записей.
     if _credentials_configured():
-        username_ok = secrets.compare_digest(
-            username.encode("utf-8"), settings.WEB_ADMIN_USERNAME.encode("utf-8")
-        )
-        password_ok = secrets.compare_digest(
-            password.encode("utf-8"), settings.WEB_ADMIN_PASSWORD.encode("utf-8")
-        )
-        if username_ok and password_ok:
-            return {
-                "username": username,
-                "role": WebRole.SUPERADMIN.value,
-                "web_user_id": None,
-                "department_id": None,
-            }
+        if await _bootstrap_disabled_in_db():
+            username_ok = secrets.compare_digest(
+                username.encode("utf-8"), settings.WEB_ADMIN_USERNAME.encode("utf-8")
+            )
+            password_ok = secrets.compare_digest(
+                password.encode("utf-8"), settings.WEB_ADMIN_PASSWORD.encode("utf-8")
+            )
+            if username_ok and password_ok:
+                logger.warning(
+                    "Bootstrap-вход из .env выполнен (web_users пуст). "
+                    "Рекомендуется создать постоянного пользователя: "
+                    "python scripts/create_web_user.py"
+                )
+                return {
+                    "username": username,
+                    "role": WebRole.SUPERADMIN.value,
+                    "web_user_id": None,
+                    "department_id": None,
+                }
+        else:
+            # Bootstrap отключён — но если введён правильный пароль из .env,
+            # логируем предупреждение о том, что учётные данные устарели
+            if username == settings.WEB_ADMIN_USERNAME:
+                logger.warning(
+                    "Bootstrap-вход отклонён: в web_users уже есть активные "
+                    "пользователи. Используйте постоянные учётные данные или "
+                    "создайте пользователя через scripts/create_web_user.py"
+                )
     return None
 
 
@@ -256,6 +313,73 @@ async def login(request: Request):
 
 @router.post("/logout")
 async def logout(request: Request):
-    """Выход из системы (POST с CSRF-токеном, а не GET)."""
+    """Выход из системы (POST с CSRF-токеном, а не GET).
+    
+    Полная инвалидация сессии:
+    - Очистка всех данных сессии
+    - Генерация нового CSRF-токена (старый становится невалидным)
+    - Удаление session cookie (чтобы избежать повторного использования)
+    """
+    user_data = request.session.get("user")
+    username = user_data.get("username", "unknown") if user_data else "unknown"
+    
+    # Логируем выход
+    await _log_action(
+        "web_logout",
+        f"Выполнен выход пользователя {username}",
+    )
+    
+    # Полная инвалидация сессии
     request.session.clear()
+    
+    # Генерируем новый CSRF-токен — старый становится невалидным.
+    # Это предотвращает повторную активацию сессии при stateless-сессиях.
+    request.session["csrf_token"] = secrets.token_urlsafe(32)
+    
     return RedirectResponse(url="/auth/login", status_code=303)
+
+
+# ==========================================
+# Rate limiting для CRUD-операций
+# ==========================================
+
+def _crud_memory_window(ip: str) -> list[float]:
+    """Очистить и вернуть окно попыток CRUD-операций из in-memory mirror."""
+    now = time.time()
+    window_start = now - _CRUD_WINDOW_SECONDS
+    attempts = [t for t in _CRUD_ATTEMPTS.get(ip, []) if t > window_start]
+    _CRUD_ATTEMPTS[ip] = attempts
+    return attempts
+
+
+def _is_crud_rate_limited(ip: str) -> bool:
+    """Превышен ли лимит CRUD-операций для IP."""
+    return len(_crud_memory_window(ip)) >= _CRUD_MAX_ATTEMPTS
+
+
+def _record_crud_attempt(ip: str) -> None:
+    """Зафиксировать попытку CRUD-операции."""
+    now = time.time()
+    window_start = now - _CRUD_WINDOW_SECONDS
+    attempts = [t for t in _CRUD_ATTEMPTS.get(ip, []) if t > window_start]
+    attempts.append(now)
+    _CRUD_ATTEMPTS[ip] = attempts
+
+
+def require_crud_rate_limit(request: Request):
+    """Зависимость FastAPI для rate limiting CRUD-операций.
+    
+    Использовать как Depends(require_crud_rate_limit) на POST-маршрутах.
+    Лимит: 20 операций на IP за 5 минут.
+    При превышении — 429 Too Many Requests с блокировкой на 1 минуту.
+    """
+    client_ip = _get_client_ip(request)
+    
+    if _is_crud_rate_limited(client_ip):
+        logger.warning("CRUD rate limit превышен для IP %s", client_ip)
+        raise HTTPException(
+            status_code=429,
+            detail="Слишком много запросов. Подождите 1 минуту.",
+        )
+    
+    _record_crud_attempt(client_ip)

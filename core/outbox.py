@@ -61,6 +61,7 @@ async def deliver_pending_messages(
             .where(VkOutbox.status == "pending")
             .order_by(VkOutbox.created_at.asc(), VkOutbox.id.asc())
             .limit(batch_size)
+            .with_for_update(skip_locked=True)
         )
         for message in pending:
             ok = await send_vk_message(message.vk_id, message.text)

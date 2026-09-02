@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import json
 import logging
 import re
 
@@ -7,7 +8,7 @@ from core.vk_compat import patch_vkbottle_logging
 
 patch_vkbottle_logging()
 
-from vkbottle import Bot, StateGroup
+from vkbottle import BaseStateGroup, Bot
 from vkbottle.bot import Message
 from vkbottle.dispatch.rules.base import RegexRule
 from vkbottle.exception_factory.base_exceptions import VKAPIError
@@ -30,15 +31,26 @@ logger = logging.getLogger(__name__)
 
 
 # FSM StateGroup для отчётов
-class ReportStates(StateGroup):
+class ReportStates(BaseStateGroup):
     WAITING_DATE = "waiting_date"
     WAITING_DATE_FROM = "waiting_date_from"
     WAITING_DATE_TO = "waiting_date_to"
 
 
 # FSM StateGroup для анонимных обращений
-class AnonymousStates(StateGroup):
+class AnonymousStates(BaseStateGroup):
     WAITING_DESCRIPTION = "waiting_anonymous_description"
+    WAITING_IDENTITY_CHOICE = "waiting_anonymous_identity_choice"
+
+
+def build_anonymous_choice_keyboard() -> str:
+    return json.dumps({
+        "one_time": True,
+        "buttons": [[
+            {"action": {"type": "text", "label": "Остаться анонимным"}, "color": "secondary"},
+            {"action": {"type": "text", "label": "Остаться не анонимным"}, "color": "primary"},
+        ]],
+    })
 
 
 def _main_reply_text() -> str:
@@ -148,11 +160,11 @@ async def corporate_section(message: Message):
 
 
 @vk_bot.on.private_message(text=["Анонимное обращение", "Анонимное обращение"])
-async def anonymous_section_start(message: Message, state: vkbottle.StateType):
+async def anonymous_section_start(message: Message):
     """Начало создания анонимной заявки — бот запрашивает текст."""
     touch_heartbeat()
     # Устанавливаем FSM-состояние
-    await state.set(AnonymousStates.WAITING_DESCRIPTION)
+    await vk_bot.state_dispenser.set(message.from_id, AnonymousStates.WAITING_DESCRIPTION)
     await message.answer(
         "🔒 Анонимное обращение\n\n"
         "Вы можете anonymously сообщить о проблеме.\n"
@@ -166,7 +178,7 @@ async def anonymous_section_start(message: Message, state: vkbottle.StateType):
 
 @vk_bot.on.private_message(state=AnonymousStates.WAITING_DESCRIPTION)
 async def anonymous_section_submit(message: Message):
-    """Отправка анонимной заявки — сохранение в БД."""
+    """Получить текст обращения и запросить режим обратной связи."""
     touch_heartbeat()
     description = message.text.strip()
 
@@ -178,27 +190,56 @@ async def anonymous_section_submit(message: Message):
         )
         return
 
+    await vk_bot.state_dispenser.set(
+        message.from_id,
+        AnonymousStates.WAITING_IDENTITY_CHOICE,
+        description=description,
+    )
+    await message.answer(
+        "Выберите режим обращения:\n\n"
+        "«Остаться анонимным» — VK ID не будет сохранён, ответ через VK невозможен.\n"
+        "«Остаться не анонимным» — администратор сможет ответить вам в VK.",
+        keyboard=build_anonymous_choice_keyboard(),
+    )
+
+
+@vk_bot.on.private_message(
+    state=AnonymousStates.WAITING_IDENTITY_CHOICE,
+    text=["Остаться анонимным", "Остаться не анонимным"],
+)
+async def anonymous_section_choice(message: Message):
+    """Создать обращение после выбора канала обратной связи."""
+    keep_identity = message.text == "Остаться не анонимным"
+    state_peer = await vk_bot.state_dispenser.get(message.from_id)
+    description = state_peer.payload.get("description", "") if state_peer else ""
+
     try:
         ticket = await create_anonymous_ticket(
             topic="Анонимное обращение",
             description=description,
+            vk_id=message.from_id,
+            keep_identity=keep_identity,
         )
 
         await message.answer(
             f"✅ Ваше обращение принято!\n\n"
             f"Номер заявки: #{ticket.id}\n"
-            f"Статус: Анонимное\n\n"
-            f"Обращение доступно для обработки суперадминистратору.\n"
-            f"Мы ответим вам через бота, когда будет готов ответ."
+            f"Статус: {ticket.status.value}\n\n"
+            + (
+                "Администратор сможет ответить вам через VK."
+                if keep_identity
+                else "VK ID не сохранён. Ответ через VK на анонимные обращения не отправляется."
+            )
         )
 
         # Уведомляем суперадмина о новой анонимной заявке
         from core.vk_client import send_vk_message
         await send_vk_message(
             settings.VK_REPORT_ADMIN_ID,
-            f"🔒 Новая анонимная заявка #{ticket.id}\n"
+            f"🔒 Новая заявка из анонимного раздела #{ticket.id}\n"
             f"{description[:200]}",
         )
+        await vk_bot.state_dispenser.delete(message.from_id)
 
     except Exception:
         logger.exception("Ошибка при создании анонимной заявки")
@@ -247,7 +288,7 @@ async def report_handler(message: Message):
             filename,
         )
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт {filename}")
-    except (ValueError, OSError, KeyError, VKAPIError) as error:
+    except (ValueError, OSError, KeyError, VKAPIError):
         logger.exception("Ошибка при формировании отчёта")
         await BotCore.log_action(user, "report_failed", "Ошибка при формировании отчёта")
         await message.answer(
@@ -290,7 +331,7 @@ async def report_by_date_input(message: Message):
         )
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за {parsed} (по дате)")
         await message.answer(f"Отчет за {parsed:%d.%m.%Y} сформирован и отправлен.")
-    except Exception as error:
+    except Exception:
         logger.exception("Ошибка при формировании отчёта за %s", parsed)
         await BotCore.log_action(user, "report_failed", f"Ошибка при формировании отчёта за {parsed}")
         await message.answer(
@@ -346,7 +387,7 @@ async def report_by_period_input(message: Message):
         )
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за период {date_from} - {date_to}")
         await message.answer(f"Отчет за период с {date_from:%d.%m.%Y} по {date_to:%d.%m.%Y} сформирован и отправлен.")
-    except Exception as error:
+    except Exception:
         logger.exception(
             "Ошибка при формировании отчёта за период %s - %s",
             date_from,
