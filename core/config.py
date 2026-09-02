@@ -1,4 +1,5 @@
 import os
+import sys
 from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
@@ -31,10 +32,6 @@ class Settings:
         f"postgresql+asyncpg://{_db_user}:{_db_pass}"
         f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     ) if DB_USER and DB_PASS else ""
-    database_url = (
-        f"postgresql+asyncpg://{quote_plus(DB_USER)}:{quote_plus(DB_PASS)}"
-        f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    )
 
     # VK
     VK_BOT_TOKEN = os.getenv("VK_BOT_TOKEN")
@@ -98,9 +95,37 @@ class Settings:
         if email.strip()
     ]
 
+    def validate_required(self) -> None:
+        """Проверить обязательные конфигурационные поля.
+
+        Вызывается при запуске бота или панели. Если обязательные поля
+        не заданы — бросает RuntimeError с понятным сообщением.
+        """
+        errors = []
+
+        if not self.VK_BOT_TOKEN:
+            errors.append(
+                "VK_BOT_TOKEN не задан. Укажите токен сообщества VK в .env "
+                "(Управление -> Работа с API -> Ключи доступа)."
+            )
+
+        if not self.ADMIN_VK_IDS:
+            errors.append(
+                "ADMIN_VK_IDS не задан. Укажите VK ID администраторов в .env "
+                "(через запятую, например: 123456789,987654321)."
+            )
+
+        if errors:
+            raise RuntimeError(
+                "Неверная конфигурация:\n"
+                + "\n".join(f"  - {e}" for e in errors)
+            )
+
     def ensure_production_config(self) -> None:
         """Жёсткие проверки конфигурации для production (запуск прерывается)."""
         if not self.IS_PRODUCTION:
+            # В dev-режиме проверяем обязательные поля
+            self.validate_required()
             return
         if not self.DB_USER or self.DB_USER == "student_bot":
             raise RuntimeError(

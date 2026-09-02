@@ -7,7 +7,7 @@ from core.vk_compat import patch_vkbottle_logging
 
 patch_vkbottle_logging()
 
-from vkbottle import Bot
+from vkbottle import Bot, StateGroup
 from vkbottle.bot import Message
 from vkbottle.dispatch.rules.base import RegexRule
 from vkbottle.exception_factory.base_exceptions import VKAPIError
@@ -26,6 +26,13 @@ from bots.vk.keyboards import build_main_keyboard, build_tickets_keyboard
 vk_bot = Bot(token=settings.VK_BOT_TOKEN)
 
 logger = logging.getLogger(__name__)
+
+
+# FSM StateGroup для отчётов
+class ReportStates(StateGroup):
+    WAITING_DATE = "waiting_date"
+    WAITING_DATE_FROM = "waiting_date_from"
+    WAITING_DATE_TO = "waiting_date_to"
 
 
 def _main_reply_text() -> str:
@@ -192,17 +199,16 @@ async def report_handler(message: Message):
     await message.answer("Отчет сформирован и отправлен.")
 
 
-@vk_bot.on.private_message(text="Отчет по дате")
+@vk_bot.on.private_message(text="Отчет по дате", state=ReportStates.WAITING_DATE)
 async def report_by_date_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
         await message.answer("У вас нет доступа к отчетам.")
         return
     await message.answer("Введите дату в формате ДД.ММ.ГГГГ (например: 31.08.2026)")
-    # Сохраняем vk_id пользователя для обработки ответа
 
 
-@vk_bot.on.private_message(RegexRule(r"^\d{2}\.\d{2}\.\d{4}$"))
+@vk_bot.on.private_message(RegexRule(r"^\d{2}\.\d{2}\.\d{4}$"), state=ReportStates.WAITING_DATE)
 async def report_by_date_input(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
@@ -226,7 +232,79 @@ async def report_by_date_input(message: Message):
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за {parsed} (по дате)")
         await message.answer(f"Отчет за {parsed:%d.%m.%Y} сформирован и отправлен.")
     except Exception as error:
-        logger.exception("Ошибка при формировании отчёта за %s: %s", parsed, error)
+        logger.exception("Ошибка при формировании отчёта за %s", parsed)
+        await BotCore.log_action(user, "report_failed", f"Ошибка при формировании отчёта за {parsed}")
+        await message.answer(
+            "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал."
+        )
+
+
+@vk_bot.on.private_message(text="Отчет за период", state=ReportStates.WAITING_DATE_FROM)
+async def report_by_period_handler(message: Message):
+    user = await BotCore.get_or_create_user(vk_id=message.from_id)
+    if not await BotCore.is_admin(user):
+        await message.answer("У вас нет доступа к отчетам.")
+        return
+    await message.answer(
+        "Введите диапазон дат в формате:\n"
+        "31.08.2026 - 15.09.2026\n"
+        "или\n"
+        "с 31.08.2026 по 15.09.2026"
+    )
+
+
+@vk_bot.on.private_message(RegexRule(r"^\d{2}\.\d{2}\.\d{4}\s*[-–—]\s*\d{2}\.\d{2}\.\d{4}$"), state=ReportStates.WAITING_DATE_FROM)
+async def report_by_period_input(message: Message):
+    user = await BotCore.get_or_create_user(vk_id=message.from_id)
+    if not await BotCore.is_admin(user):
+        return
+
+    parts = re.split(r"\s*[-–—]\s*", message.text.strip())
+    if len(parts) != 2:
+        await message.answer("Неверный формат. Введите две даты через тире (например: 31.08.2026 - 15.09.2026)")
+        return
+
+    date_from = parse_report_date(parts[0])
+    date_to = parse_report_date(parts[1])
+
+    if date_from is None or date_to is None:
+        await message.answer("Неверный формат даты. Используйте ДД.ММ.ГГГГ (например: 31.08.2026)")
+        return
+
+    if date_from > date_to:
+        await message.answer("Дата начала не может быть позже даты окончания.")
+        return
+
+    try:
+        data = await get_report_for_period(date_from, date_to)
+        report_bytes = build_daily_report(data, datetime(*date_from.timetuple()[:6]))
+        filename = f"report_{date_from:%Y-%m-%d}_to_{date_to:%Y-%m-%d}.xlsx"
+        await send_report_to_vk(
+            vk_bot.api,
+            settings.VK_REPORT_ADMIN_ID,
+            report_bytes,
+            filename,
+        )
+        await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за период {date_from} - {date_to}")
+        await message.answer(f"Отчет за период с {date_from:%d.%m.%Y} по {date_to:%d.%m.%Y} сформирован и отправлен.")
+    except Exception as error:
+        logger.exception(
+            "Ошибка при формировании отчёта за период %s - %s",
+            date_from,
+            date_to,
+        )
+        await BotCore.log_action(
+            user,
+            "report_failed",
+            f"Ошибка при формировании отчёта за период {date_from} - {date_to}",
+        )
+        await message.answer(
+            "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал."
+        )
+        await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за {parsed} (по дате)")
+        await message.answer(f"Отчет за {parsed:%d.%m.%Y} сформирован и отправлен.")
+    except Exception as error:
+        logger.exception("Ошибка при формировании отчёта за %s", parsed)
         await BotCore.log_action(user, "report_failed", f"Ошибка при формировании отчёта за {parsed}")
         await message.answer(
             "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал."

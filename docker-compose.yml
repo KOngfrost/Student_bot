@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
     volumes:
-      - postgres_data_recovered:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     # Порт наружу не публикуем: доступ только с самого сервера
     # (при необходимости: docker compose exec db psql ...)
     ports:
@@ -105,5 +105,5 @@ services:
       retries: 3
 
 volumes:
-  postgres_data_recovered:
+  postgres_data:
   tailscale_state:

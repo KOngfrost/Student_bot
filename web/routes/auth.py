@@ -47,6 +47,8 @@ CREDENTIALS_NOT_SET = (
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW_SECONDS = 15 * 60
 
+# In-memory mirror для fallback (когда БД недоступна).
+# При штатной работе используется БД (login_attempts).
 _LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 
 

@@ -7,10 +7,11 @@
 - Security Headers (X-Frame-Options, CSP, X-Content-Type-Options и др.)
 - Валидацию размера запросов
 - Безопасный глобальный обработчик ошибок
+- Логирование в файлы (core/logging_config.py)
 """
 
-import os
 import logging
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +26,10 @@ from web.security.middleware import (
     RequestSizeValidator,
 )
 from core.config import settings
+
+# Настраиваем логирование при старте веб-панели
+from core.logging_config import setup_logging  # noqa: E402
+setup_logging(log_dir=os.path.join(os.path.dirname(__file__), "..", "logs"))
 
 logger = logging.getLogger(__name__)
 

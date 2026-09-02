@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import socket
+import sys
 import time
 
 import aiohttp
@@ -10,9 +11,16 @@ from bots.vk.bot import vk_bot
 from core.config import settings
 from core.database import run_migrations
 from core.heartbeat import touch_heartbeat
+from core.logging_config import setup_logging
 from core.reporting import start_report_scheduler
 
 logger = logging.getLogger(__name__)
+
+# Настраиваем логирование при старте
+setup_logging()
+
+# Флаг, чтобы планировщик запускался только один раз
+_scheduler_started = False
 
 
 def initialize_database() -> None:
@@ -30,7 +38,16 @@ def initialize_database() -> None:
 
 
 async def _start_scheduler() -> None:
-    """Запускает asyncio-планировщик отчётов, outbox-воркер и heartbeat."""
+    """Запускает asyncio-планировщик отчётов, outbox-воркер и heartbeat.
+
+    Вызывается ОДИН раз при старте бота (через on_startup vkbottle).
+    Флаг _scheduler_started защищает от повторного запуска при retry.
+    """
+    global _scheduler_started
+    if _scheduler_started:
+        return
+    _scheduler_started = True
+
     start_report_scheduler(vk_bot.api, settings.VK_REPORT_ADMIN_ID)
     logger.info("Планировщик отчётов запущен")
 
@@ -52,11 +69,12 @@ async def _start_scheduler() -> None:
 def run_vk_polling() -> None:
     retry_delay = 5
 
+    # Планировщик добавляется ОДИН раз — vkbottle on_startup сработает
+    # при первом вызове run(), и флаг _scheduler_started защитит от дублей.
+    vk_bot.on_startup.append(_start_scheduler)
+
     while True:
         try:
-            # vkbottle очищает on_startup после каждого run(),
-            # поэтому добавляем свежую coroutine перед каждым запуском
-            vk_bot.on_startup.append(_start_scheduler())
             vk_bot.run()
             logger.warning("VK polling stopped; retrying in %s seconds", retry_delay)
         except (aiohttp.ClientError, OSError, socket.gaierror, TimeoutError) as error:
@@ -75,6 +93,9 @@ def run() -> None:
         settings.ensure_production_config()
         initialize_database()
         run_vk_polling()
+    except RuntimeError as error:
+        print(f"Ошибка конфигурации: {error}", file=sys.stderr)
+        sys.exit(1)
     except VKAPIError as error:
         if "longpoll" in str(error).lower():
             print(

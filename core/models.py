@@ -46,9 +46,10 @@ class Department(Base):
 
     admins = relationship("Admin", back_populates="department")
     tickets = relationship("Ticket", back_populates="department")
-    knowledge_base = relationship("KnowledgeBase", back_populates="department")
-    faq_nodes = relationship("FAQNode", back_populates="department")
-    events = relationship("Event", back_populates="department")
+    # Следующие связи реализованы в будущих версиях (МVP завершён):
+    # knowledge_base = relationship("KnowledgeBase", back_populates="department")
+    # faq_nodes = relationship("FAQNode", back_populates="department")
+    # events = relationship("Event", back_populates="department")
 
 
 class User(Base):
@@ -61,8 +62,9 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     tickets = relationship("Ticket", back_populates="user")
-    subscriptions = relationship("Subscription", back_populates="user")
-    registrations = relationship("Registration", back_populates="user")
+    # Следующие связи реализованы в будущих версиях (МVP завершён):
+    # subscriptions = relationship("Subscription", back_populates="user")
+    # registrations = relationship("Registration", back_populates="user")
     logs = relationship("Log", back_populates="user")
 
 
@@ -161,6 +163,7 @@ class ReportRun(Base):
 
 
 class KnowledgeBase(Base):
+    """Модель базы знаний (для будущих версий, не используется в MVP)."""
     __tablename__ = "knowledge_base"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -170,10 +173,11 @@ class KnowledgeBase(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    department = relationship("Department", back_populates="knowledge_base")
+    # department = relationship("Department", back_populates="knowledge_base")
 
 
 class FAQNode(Base):
+    """Модель FAQ-дерева (для будущих версий, не используется в MVP)."""
     __tablename__ = "faq_nodes"
     __table_args__ = (
         # Для финальных узлов обязателен final_answer
@@ -193,11 +197,12 @@ class FAQNode(Base):
     order_index = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    department = relationship("Department", back_populates="faq_nodes")
-    parent = relationship("FAQNode", remote_side="FAQNode.id", backref="children")
+    # department = relationship("Department", back_populates="faq_nodes")
+    # parent = relationship("FAQNode", remote_side="FAQNode.id", backref="children")
 
 
 class Subscription(Base):
+    """Модель подписок (для будущих версий, не используется в MVP)."""
     __tablename__ = "subscriptions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -207,10 +212,11 @@ class Subscription(Base):
 
     __table_args__ = (UniqueConstraint("user_id", "department_id", name="uq_subscription_user_department"),)
 
-    user = relationship("User", back_populates="subscriptions")
+    # user = relationship("User", back_populates="subscriptions")
 
 
 class Event(Base):
+    """Модель мероприятий (для будущих версий, не используется в MVP)."""
     __tablename__ = "events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -220,11 +226,12 @@ class Event(Base):
     event_date = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    department = relationship("Department", back_populates="events")
-    registrations = relationship("Registration", back_populates="event")
+    # department = relationship("Department", back_populates="events")
+    # registrations = relationship("Registration", back_populates="event")
 
 
 class Registration(Base):
+    """Модель регистраций на мероприятия (для будущих версий, не используется в MVP)."""
     __tablename__ = "registrations"
     __table_args__ = (
         UniqueConstraint("user_id", "event_id", name="uq_registration_user_event"),
@@ -235,8 +242,8 @@ class Registration(Base):
     event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
     registered_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    user = relationship("User", back_populates="registrations")
-    event = relationship("Event", back_populates="registrations")
+    # user = relationship("User", back_populates="registrations")
+    # event = relationship("Event", back_populates="registrations")
 
 
 class Log(Base):

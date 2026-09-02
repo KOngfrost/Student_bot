@@ -17,3 +17,6 @@ htmlcov/
 .coverage
 *.log
 Status/
+*.sql.gz
+.DS_Store
+node_modules/

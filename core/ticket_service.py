@@ -8,6 +8,7 @@
 """
 
 import logging
+from contextlib import asynccontextmanager
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,33 @@ from core.models import (
 from core.outbox import add_outbox_message, fire_outbox_delivery
 
 logger = logging.getLogger(__name__)
+
+# === Общий контекстный менеджер для транзакций ===
+
+
+@asynccontextmanager
+async def ticket_transaction():
+    """Контекстный менеджер для работы с транзакциями заявок.
+
+    Позволяет объединять несколько операций в одну транзакцию:
+
+        async with ticket_transaction() as session:
+            ticket = await session.get(Ticket, 123)
+            await session.execute(...)  # другие операции
+            # commit() вызывается автоматически при выходе из контекста
+
+    Также можно вызывать несколько раз вложенно — сессия будет общая.
+    """
+    async with async_session_maker() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+# === Остальной код ===
 
 # Допустимые переходы статусов заявки:
 # NEW -> IN_PROGRESS -> TRANSFERRED_ADMIN/HOUSEKEEPING -> COMPLETED -> COMPLETED_AUTO
@@ -155,7 +183,7 @@ async def reply_to_ticket(
     Возвращает (заявка, запланирована_ли_доставка_в_VK) или (None, False),
     если заявка не найдена.
     """
-    async with async_session_maker() as session:
+    async with ticket_transaction() as session:
         ticket = await session.scalar(
             select(Ticket)
             .options(selectinload(Ticket.user), selectinload(Ticket.department))
@@ -203,15 +231,11 @@ async def reply_to_ticket(
             )
             scheduled = True
 
-        # 6. Фиксируем ВСЁ разом, и только потом пытаемся доставить
-        await session.commit()
+    # commit() уже вызван внутри ticket_transaction
+    if scheduled:
+        fire_outbox_delivery()
 
-        if scheduled:
-            # Бесшовная доставка: сразу стартуем фоновую отправку.
-            # Если она не поспеет, сообщение донесёт периодический воркер.
-            fire_outbox_delivery()
-
-        return ticket, scheduled
+    return ticket, scheduled
 
 
 async def change_ticket_status(
@@ -224,7 +248,7 @@ async def change_ticket_status(
     Строка заявки блокируется (SELECT...FOR UPDATE), чтобы два администратора
     не могли одновременно изменить статус одной заявки.
     """
-    async with async_session_maker() as session:
+    async with ticket_transaction() as session:
         ticket = await session.scalar(
             select(Ticket).where(Ticket.id == ticket_id).with_for_update()
         )
@@ -251,7 +275,6 @@ async def change_ticket_status(
                 ),
             )
         )
-        await session.commit()
         return ticket
 
 
@@ -265,7 +288,7 @@ async def assign_ticket_department(
     Строка заявки блокируется (SELECT...FOR UPDATE) для защиты от
     конкурентной передачи в разные отделы.
     """
-    async with async_session_maker() as session:
+    async with ticket_transaction() as session:
         ticket = await session.scalar(
             select(Ticket)
             .options(selectinload(Ticket.department), selectinload(Ticket.user))
@@ -296,7 +319,6 @@ async def assign_ticket_department(
                 ),
             )
         )
-        await session.commit()
         return ticket
 
 
