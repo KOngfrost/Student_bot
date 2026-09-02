@@ -110,6 +110,45 @@ async def test_report_run_deduplication(db_session_maker):
         assert len(runs) == 1
 
 
+async def test_send_report_to_vk_uploads_bytes_and_sends_document(monkeypatch):
+    from core import reporting
+
+    class FakeUploader:
+        async def upload(self, file_source, peer_id, title):
+            assert file_source == b"report-bytes"
+            assert peer_id == 123
+            assert title == "report.xlsx"
+            return "doc-attachment"
+
+    class FakeMessages:
+        async def send(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeApi:
+        def __init__(self):
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr(reporting, "DocMessagesUploader", lambda api: FakeUploader())
+    api = FakeApi()
+
+    await reporting.send_report_to_vk(api, 123, b"report-bytes", "report.xlsx")
+
+    assert api.messages.kwargs["peer_id"] == 123
+    assert api.messages.kwargs["attachment"] == "doc-attachment"
+
+
+async def test_start_report_scheduler_uses_current_loop(monkeypatch):
+    from core import reporting
+
+    async def fake_report_loop(api):
+        return None
+
+    monkeypatch.setattr(reporting, "_report_loop", fake_report_loop)
+    task = reporting.start_report_scheduler(object())
+    await task
+    assert task.done()
+
+
 def test_parse_report_date_valid():
     from core.reporting import parse_report_date
 

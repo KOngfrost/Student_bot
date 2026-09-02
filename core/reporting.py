@@ -285,6 +285,13 @@ async def send_report_to_vk(api, admin_vk_id: int, report_bytes: bytes, filename
         title=filename,
     )
 
+    await api.messages.send(
+        peer_id=admin_vk_id,
+        random_id=random.randint(1, 2**31 - 1),
+        message="Ежедневный отчёт во вложении.",
+        attachment=attachment,
+    )
+
 
 async def get_superadmin_vk_ids() -> list[int]:
     """Возвращает VK ID всех суперадминистраторов с доступным VK ID."""
@@ -296,14 +303,6 @@ async def get_superadmin_vk_ids() -> list[int]:
             .distinct()
         )
         return [vk_id for vk_id in result if vk_id is not None]
-
-    await api.messages.send(
-        peer_id=admin_vk_id,
-        random_id=random.randint(1, 2**31 - 1),
-        message="Ежедневный отчёт во вложении.",
-        attachment=attachment,
-    )
-
 
 def _seconds_until_report() -> float:
     """Секунды до ближайшего запуска отчёта (в часовом поясе APP_TIMEZONE)."""
@@ -453,5 +452,5 @@ async def _report_loop(api) -> None:
 
 def start_report_scheduler(api) -> asyncio.Task:
     """Запускает asyncio-планировщик ежедневных отчётов."""
-    task = asyncio.create_task(_report_loop(api, admin_vk_id))
+    task = asyncio.create_task(_report_loop(api))
     return task
