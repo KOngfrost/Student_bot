@@ -379,3 +379,52 @@ def mask_anonymous_data(full_name: str | None, is_anonymous: bool) -> str:
     if is_anonymous:
         return "Аноним"
     return full_name or "—"
+
+
+# === Создание анонимных заявок ===
+
+
+async def create_anonymous_ticket(topic: str, description: str) -> Ticket:
+    """Создать анонимную заявку (согласно ТЗ: user_id=NULL, department_id=NULL, статус=Анонимное).
+
+    Только суперадмин видит такие заявки в веб-панели.
+
+    Args:
+        topic: Тема обращения.
+        description: Текст обращения.
+
+    Returns:
+        Созданная заявка.
+    """
+    async with ticket_transaction() as session:
+        ticket = Ticket(
+            user_id=None,           # аноним
+            department_id=None,     # без отдела
+            topic=topic,
+            description=description,
+            status=TicketStatus.ANONYMOUS,
+            is_anonymous=True,
+            auto_closed=False,
+        )
+        session.add(ticket)
+        await session.flush()  # получаем ticket.id
+
+        # Добавляем сообщение в историю
+        add_ticket_message(
+            session,
+            ticket,
+            MessageAuthorType.USER,
+            description,
+            author_vk_id=None,  # аноним
+        )
+
+        # Журналируем создание
+        session.add(
+            Log(
+                user_id=None,
+                action="anonymous_ticket_created",
+                details=f"Создана анонимная заявка #{ticket.id}: {topic}",
+            )
+        )
+
+        return ticket

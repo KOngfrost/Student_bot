@@ -16,6 +16,7 @@ from core.bot_core import BotCore
 from core.heartbeat import touch_heartbeat
 from core.reporting import _fetch_report_data, build_daily_report, get_report_for_date, get_report_for_period, parse_report_date, send_report_to_vk
 from core.ticket_service import (
+    create_anonymous_ticket,
     format_ticket_details,
     format_ticket_list,
     get_ticket_messages,
@@ -33,6 +34,11 @@ class ReportStates(StateGroup):
     WAITING_DATE = "waiting_date"
     WAITING_DATE_FROM = "waiting_date_from"
     WAITING_DATE_TO = "waiting_date_to"
+
+
+# FSM StateGroup для анонимных обращений
+class AnonymousStates(StateGroup):
+    WAITING_DESCRIPTION = "waiting_anonymous_description"
 
 
 def _main_reply_text() -> str:
@@ -142,11 +148,64 @@ async def corporate_section(message: Message):
 
 
 @vk_bot.on.private_message(text=["Анонимное обращение", "Анонимное обращение"])
-async def anonymous_section(message: Message):
+async def anonymous_section_start(message: Message, state: vkbottle.StateType):
+    """Начало создания анонимной заявки — бот запрашивает текст."""
+    touch_heartbeat()
+    # Устанавливаем FSM-состояние
+    await state.set(AnonymousStates.WAITING_DESCRIPTION)
     await message.answer(
-        "Анонимное обращение открыто. Форма отправки обращения готовится.",
+        "🔒 Анонимное обращение\n\n"
+        "Вы можете anonymously сообщить о проблеме.\n"
+        "Ваше имя и VK ID НЕ будут привязаны к заявке.\n\n"
+        "Опишите вашу проблему или предложение в одном сообщении.\n"
+        "Чем подробнее — тем быстрее мы сможем помочь.\n\n"
+        "Введите текст обращения:",
         keyboard=build_main_keyboard(False),
     )
+
+
+@vk_bot.on.private_message(state=AnonymousStates.WAITING_DESCRIPTION)
+async def anonymous_section_submit(message: Message):
+    """Отправка анонимной заявки — сохранение в БД."""
+    touch_heartbeat()
+    description = message.text.strip()
+
+    if not description or len(description) < 10:
+        await message.answer(
+            "⚠️ Описание слишком короткое.\n\n"
+            "Пожалуйста, опишите проблему подробнее (минимум 10 символов).\n\n"
+            "Введите текст обращения:"
+        )
+        return
+
+    try:
+        ticket = await create_anonymous_ticket(
+            topic="Анонимное обращение",
+            description=description,
+        )
+
+        await message.answer(
+            f"✅ Ваше обращение принято!\n\n"
+            f"Номер заявки: #{ticket.id}\n"
+            f"Статус: Анонимное\n\n"
+            f"Обращение доступно для обработки суперадминистратору.\n"
+            f"Мы ответим вам через бота, когда будет готов ответ."
+        )
+
+        # Уведомляем суперадмина о новой анонимной заявке
+        from core.vk_client import send_vk_message
+        await send_vk_message(
+            settings.VK_REPORT_ADMIN_ID,
+            f"🔒 Новая анонимная заявка #{ticket.id}\n"
+            f"{description[:200]}",
+        )
+
+    except Exception:
+        logger.exception("Ошибка при создании анонимной заявки")
+        await message.answer(
+            "❌ Произошла ошибка при отправке обращения.\n"
+            "Пожалуйста, попробуйте позже."
+        )
 
 
 @vk_bot.on.private_message(
@@ -301,80 +360,6 @@ async def report_by_period_input(message: Message):
         await message.answer(
             "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал."
         )
-        await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за {parsed} (по дате)")
-        await message.answer(f"Отчет за {parsed:%d.%m.%Y} сформирован и отправлен.")
-    except Exception as error:
-        logger.exception("Ошибка при формировании отчёта за %s", parsed)
-        await BotCore.log_action(user, "report_failed", f"Ошибка при формировании отчёта за {parsed}")
-        await message.answer(
-            "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал."
-        )
-
-
-@vk_bot.on.private_message(text="Отчет за период")
-async def report_by_period_handler(message: Message):
-    user = await BotCore.get_or_create_user(vk_id=message.from_id)
-    if not await BotCore.is_admin(user):
-        await message.answer("У вас нет доступа к отчетам.")
-        return
-    await message.answer(
-        "Введите диапазон дат в формате:\n"
-        "31.08.2026 - 15.09.2026\n"
-        "или\n"
-        "с 31.08.2026 по 15.09.2026"
-    )
-
-
-@vk_bot.on.private_message(RegexRule(r"^\d{2}\.\d{2}\.\d{4}\s*[-–—]\s*\d{2}\.\d{2}\.\d{4}$"))
-async def report_by_period_input(message: Message):
-    user = await BotCore.get_or_create_user(vk_id=message.from_id)
-    if not await BotCore.is_admin(user):
-        return
-
-    parts = re.split(r"\s*[-–—]\s*", message.text.strip())
-    if len(parts) != 2:
-        await message.answer("Неверный формат. Введите две даты через тире (например: 31.08.2026 - 15.09.2026)")
-        return
-
-    date_from = parse_report_date(parts[0])
-    date_to = parse_report_date(parts[1])
-
-    if date_from is None or date_to is None:
-        await message.answer("Неверный формат даты. Используйте ДД.ММ.ГГГГ (например: 31.08.2026)")
-        return
-
-    if date_from > date_to:
-        await message.answer("Дата начала не может быть позже даты окончания.")
-        return
-
-    try:
-        data = await get_report_for_period(date_from, date_to)
-        report_bytes = build_daily_report(data, datetime(*date_from.timetuple()[:6]))
-        filename = f"report_{date_from:%Y-%m-%d}_to_{date_to:%Y-%m-%d}.xlsx"
-        await send_report_to_vk(
-            vk_bot.api,
-            settings.VK_REPORT_ADMIN_ID,
-            report_bytes,
-            filename,
-        )
-        await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за период {date_from} - {date_to}")
-        await message.answer(f"Отчет за период с {date_from:%d.%m.%Y} по {date_to:%d.%m.%Y} сформирован и отправлен.")
-    except Exception as error:
-        logger.exception(
-            "Ошибка при формировании отчёта за период %s - %s: %s",
-            date_from,
-            date_to,
-            error,
-        )
-        await BotCore.log_action(
-            user,
-            "report_failed",
-            f"Ошибка при формировании отчёта за период {date_from} - {date_to}",
-        )
-        await message.answer(
-            "Не удалось отправить отчёт. Попробуйте позже; детали записаны в журнал."
-        )
-
 
 
 if __name__ == "__main__":
