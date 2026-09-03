@@ -20,3 +20,4 @@ Status/
 *.sql.gz
 .DS_Store
 node_modules/
+test/

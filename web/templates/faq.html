@@ -35,49 +35,82 @@
         </select>
     </div>
     
-    <div class="table-container">
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Отдел</th>
-                    <th>Вопрос</th>
-                    <th>Ответ</th>
-                    <th>Тип</th>
-                    <th>Действия</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for node in faq_nodes %}
-                <tr data-dept="{{ node.department.id }}">
-                    <td>{{ node.id }}</td>
-                    <td>{{ node.department.name }}</td>
-                    <td>{{ node.question[:50] }}{% if node.question|length > 50 %}...{% endif %}</td>
-                    <td>{{ node.final_answer[:50] if node.final_answer else '—' }}</td>
-                    <td>
-                        {% if node.is_final %}
-                        <span class="badge badge-completed">Ответ</span>
-                        {% else %}
-                        <span class="badge badge-new">Вопрос</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <form method="post" action="/faq/{{ node.id }}/delete"
-                              data-confirm="Удалить этот элемент?">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit" class="btn btn-danger btn-small">Удалить</button>
-                        </form>
-                    </td>
-                </tr>
+    <!-- FAQ Аккордеон -->
+    <div class="faq-list" id="faq-accordion">
+        {% for node in faq_nodes %}
+        <div class="faq-item" data-dept="{{ node.department.id }}" data-node-id="{{ node.id }}">
+            <div class="faq-question" onclick="toggleFaqItem(this)">
+                <span>{{ node.question[:80] }}{% if node.question|length > 80 %}...{% endif %}</span>
+                {% if node.is_final %}
+                <span class="badge badge-completed" style="flex-shrink:0">Ответ</span>
                 {% else %}
-                <tr>
-                    <td colspan="6" class="empty-state">
-                        Элементов FAQ пока нет
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                <span class="badge badge-new" style="flex-shrink:0">Вопрос</span>
+                {% endif %}
+            </div>
+            {% if node.final_answer %}
+            <div class="faq-answer">
+                <div class="faq-answer-inner">{{ node.final_answer }}</div>
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="faq-item">
+            <div class="faq-question">
+                <span>Элементов FAQ пока нет</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <!-- Классическая таблица (для удобства админа) -->
+    <div style="margin-top: 30px;">
+        <div class="card-header" style="margin-bottom: 16px;">
+            <h2 style="font-size: 15px;">Табличный вид</h2>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Отдел</th>
+                        <th>Вопрос</th>
+                        <th>Ответ</th>
+                        <th>Тип</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for node in faq_nodes %}
+                    <tr data-dept="{{ node.department.id }}">
+                        <td>{{ node.id }}</td>
+                        <td>{{ node.department.name }}</td>
+                        <td>{{ node.question[:50] }}{% if node.question|length > 50 %}...{% endif %}</td>
+                        <td>{{ node.final_answer[:50] if node.final_answer else '—' }}</td>
+                        <td>
+                            {% if node.is_final %}
+                            <span class="badge badge-completed">Ответ</span>
+                            {% else %}
+                            <span class="badge badge-new">Вопрос</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="post" action="/faq/{{ node.id }}/delete"
+                                  data-confirm="Удалить этот элемент?">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" class="btn btn-danger btn-small">Удалить</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="empty-state">
+                            Элементов FAQ пока нет
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
@@ -157,11 +190,23 @@ document.getElementById('modal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
 });
 
+function toggleFaqItem(el) {
+    const item = el.closest('.faq-item');
+    if (item) item.classList.toggle('open');
+}
+
 function filterTable() {
     const deptFilter = document.getElementById('faq-dept-filter').value;
-    const rows = document.querySelectorAll('tbody tr');
+    const rows = document.querySelectorAll('#faq-accordion .faq-item, .table-container tbody tr');
     
-    rows.forEach(row => {
+    // Фильтр аккордеона
+    document.querySelectorAll('#faq-accordion .faq-item').forEach(row => {
+        const dept = row.dataset.dept || '';
+        row.style.display = (!deptFilter || dept === deptFilter) ? '' : 'none';
+    });
+    
+    // Фильтр таблицы
+    document.querySelectorAll('.table-container tbody tr').forEach(row => {
         const dept = row.dataset.dept || '';
         row.style.display = (!deptFilter || dept === deptFilter) ? '' : 'none';
     });

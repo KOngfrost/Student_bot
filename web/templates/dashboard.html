@@ -2,6 +2,30 @@
 {% block title %}Дашборд - Admin Panel{% endblock %}
 
 {% block content %}
+<!-- Hero-секция дашборда -->
+<div class="hero-section">
+    <div class="hero-content">
+        <div class="hero-text">
+            <h1>Student Bot</h1>
+            <div class="hero-subtitle">Система управления обращениями студентов — всё в одном месте</div>
+        </div>
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <div class="hero-stat-value" data-counter>{{ stats.total_tickets }}</div>
+                <div class="hero-stat-label">Всего заявок</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-value" data-counter>{{ stats.new_tickets }}</div>
+                <div class="hero-stat-label">Новых</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-value" data-counter>{{ stats.in_progress }}</div>
+                <div class="hero-stat-label">В работе</div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="page-header">
     <div>
         <div class="crumb">Обзор</div>
