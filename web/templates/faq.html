@@ -1,5 +1,5 @@
 ﻿{% extends "base.html" %}
-{% block title %}FAQ - Admin Panel{% endblock %}
+{% block title %}FAQ - OSS Web Panel{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -42,9 +42,9 @@
             <div class="faq-question" onclick="toggleFaqItem(this)">
                 <span>{{ node.question[:80] }}{% if node.question|length > 80 %}...{% endif %}</span>
                 {% if node.is_final %}
-                <span class="badge badge-completed" style="flex-shrink:0">Ответ</span>
+                <span class="badge badge-completed">Ответ</span>
                 {% else %}
-                <span class="badge badge-new" style="flex-shrink:0">Вопрос</span>
+                <span class="badge badge-new">Вопрос</span>
                 {% endif %}
             </div>
             {% if node.final_answer %}
@@ -63,9 +63,9 @@
     </div>
     
     <!-- Классическая таблица (для удобства админа) -->
-    <div style="margin-top: 30px;">
-        <div class="card-header" style="margin-bottom: 16px;">
-            <h2 style="font-size: 15px;">Табличный вид</h2>
+    <div class="faq-table-section">
+        <div class="card-header">
+            <h2>Табличный вид</h2>
         </div>
         <div class="table-container">
             <table>

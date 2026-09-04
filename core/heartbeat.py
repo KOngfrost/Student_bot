@@ -9,7 +9,7 @@ import os
 import time
 from datetime import datetime, timezone
 
-HEARTBEAT_FILE = os.getenv("HEARTBEAT_FILE", "/tmp/student_bot_heartbeat")
+HEARTBEAT_FILE = os.getenv("HEARTBEAT_FILE", "/tmp/oss_bot_heartbeat")
 MAX_AGE_SECONDS = int(os.getenv("HEARTBEAT_MAX_AGE", "600"))  # 10 минут
 
 

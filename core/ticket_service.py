@@ -89,6 +89,27 @@ ALLOWED_TRANSITIONS: dict[TicketStatus, set[TicketStatus]] = {
 
 COMPLETED_STATUSES = {TicketStatus.COMPLETED, TicketStatus.COMPLETED_AUTO}
 
+# Человекочитаемые названия статусов для бота и веб-панели.
+# Enum-значения (NEW, IN_PROGRESS...) пользователям не показываются.
+STATUS_LABELS: dict[TicketStatus, str] = {
+    TicketStatus.NEW: "Новое",
+    TicketStatus.IN_PROGRESS: "В обработке",
+    TicketStatus.TRANSFERRED_ADMIN: "Передано в администрацию",
+    TicketStatus.TRANSFERRED_HOUSEKEEPING: "Передано в хозчасть",
+    TicketStatus.COMPLETED: "Выполнено",
+    TicketStatus.COMPLETED_AUTO: "Выполнено (авто)",
+    TicketStatus.ANONYMOUS: "Анонимное",
+}
+
+
+def status_label(status: TicketStatus | str | None) -> str:
+    """Русская метка статуса (безопасно для любого входа)."""
+    if status is None:
+        return "—"
+    if isinstance(status, TicketStatus):
+        return STATUS_LABELS.get(status, status.value)
+    return status
+
 
 class StatusTransitionError(ValueError):
     """Недопустимый переход статуса заявки."""
@@ -281,7 +302,7 @@ async def change_ticket_status(
             add_outbox_message(
                 session,
                 ticket.user.vk_id,
-                f"Статус вашей заявки #{ticket.id} изменён: {ticket.status.value}",
+                f"Статус вашей заявки #{ticket.id} изменён: {status_label(ticket.status)}",
             )
         return ticket
 
@@ -340,7 +361,7 @@ def format_ticket_list(tickets: list[Ticket]) -> str:
         created = ticket.created_at.strftime("%d.%m.%Y") if ticket.created_at else "—"
         dept = ticket.department.name if ticket.department else "—"
         lines.append(f"#{ticket.id} · {dept} · {ticket.topic or 'Без темы'}")
-        lines.append(f"   Статус: {ticket.status.value} · создана {created}")
+        lines.append(f"   Статус: {status_label(ticket.status)} · создана {created}")
         if ticket.description:
             preview = " ".join(ticket.description.split())
             lines.append(f"   Вопрос: {preview[:160]}{'...' if len(preview) > 160 else ''}")
@@ -361,7 +382,7 @@ def format_ticket_details(ticket: Ticket, messages: list[TicketMessage]) -> str:
         f"Заявка #{ticket.id}",
         f"Отдел: {dept}",
         f"Тема: {ticket.topic or 'Без темы'}",
-        f"Статус: {ticket.status.value}",
+        f"Статус: {status_label(ticket.status)}",
         f"Создана: {created}",
         "",
         "История обращений:",
@@ -392,28 +413,35 @@ def mask_anonymous_data(full_name: str | None, is_anonymous: bool) -> str:
     return full_name or "—"
 
 
-# === Создание анонимных заявок ===
+# === Создание обращений ===
 
 
-async def create_anonymous_ticket(
+async def _resolve_department(
+    session: AsyncSession,
+    department_name: str | None,
+) -> Department | None:
+    """Найти отдел по названию (для разделов меню бота)."""
+    if not department_name:
+        return None
+    return await session.scalar(
+        select(Department).where(Department.name == department_name)
+    )
+
+
+async def create_ticket(
     topic: str,
     description: str,
     vk_id: int | None = None,
     keep_identity: bool = False,
+    department_name: str | None = None,
 ) -> Ticket:
-    """Создать обращение из анонимного раздела.
+    """Создать обращение студента из раздела меню бота.
 
-    При keep_identity сохраняется пользователь, чтобы администратор мог
-    ответить ему через VK. Иначе обращение полностью анонимно.
+    keep_identity=True сохраняет пользователя (VK ID), чтобы администратор
+    мог ответить через VK. Иначе обращение хранится без привязки к VK ID.
 
-    Только суперадмин видит такие заявки в веб-панели.
-
-    Args:
-        topic: Тема обращения.
-        description: Текст обращения.
-
-    Returns:
-        Созданная заявка.
+    department_name связывает заявку с отделом (по названию из departments);
+    если отдел не найден, заявка создаётся без отдела.
     """
     async with ticket_transaction() as session:
         user = None
@@ -424,9 +452,11 @@ async def create_anonymous_ticket(
                 session.add(user)
                 await session.flush()
 
+        department = await _resolve_department(session, department_name)
+
         ticket = Ticket(
             user_id=user.id if user else None,
-            department_id=None,     # без отдела
+            department_id=department.id if department else None,
             topic=topic,
             description=description,
             status=TicketStatus.NEW if keep_identity else TicketStatus.ANONYMOUS,
@@ -449,9 +479,26 @@ async def create_anonymous_ticket(
         session.add(
             Log(
                 user_id=None,
-                action="anonymous_ticket_created",
-                details=f"Создана анонимная заявка #{ticket.id}: {topic}",
+                action="ticket_created",
+                details=f"Создана заявка #{ticket.id}: {topic}",
             )
         )
 
         return ticket
+
+
+async def create_anonymous_ticket(
+    topic: str,
+    description: str,
+    vk_id: int | None = None,
+    keep_identity: bool = False,
+    department_name: str | None = None,
+) -> Ticket:
+    """Обратная совместимость: анонимное обращение (с опциональным отделом)."""
+    return await create_ticket(
+        topic=topic,
+        description=description,
+        vk_id=vk_id,
+        keep_identity=keep_identity,
+        department_name=department_name,
+    )

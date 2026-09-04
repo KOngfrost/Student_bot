@@ -44,5 +44,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -f Dockerfile -t student-bot .
-      - run: docker build -f Dockerfile.web -t student-bot-web .
+      - run: docker build -f Dockerfile -t oss-bot .
+      - run: docker build -f Dockerfile.web -t oss-bot-web .

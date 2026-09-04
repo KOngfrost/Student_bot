@@ -21,9 +21,10 @@ class Settings:
     # поднимет ошибку, если они не переопределены явно в .env.
     DB_USER = os.getenv("POSTGRES_USER", os.getenv("DB_USER", ""))
     DB_PASS = os.getenv("POSTGRES_PASSWORD", os.getenv("DB_PASS", ""))
-    DB_NAME = os.getenv("POSTGRES_DB", os.getenv("DB_NAME", "student_bot"))
+    DB_NAME = os.getenv("POSTGRES_DB", os.getenv("DB_NAME", "oss_bot"))
     DB_HOST = os.getenv("DB_HOST", "db")
     DB_PORT = os.getenv("DB_PORT", "5432")
+
     # Собираем URL только если все обязательные поля заданы (dev-режим)
     _db_user = quote_plus(DB_USER) if DB_USER else ""
     _db_pass = quote_plus(DB_PASS) if DB_PASS else ""
@@ -134,7 +135,7 @@ class Settings:
             raise RuntimeError(
                 "APP_ENV=production, но POSTGRES_USER не задан явно "
                 "(пустой или дефолт 'student_bot' запрещён в production). "
-                "Укажите пароль в .env."
+                "Укажите имя пользователя в .env."
             )
         if not self.DB_PASS or self.DB_PASS == "student_bot":
             raise RuntimeError(

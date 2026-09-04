@@ -5,12 +5,25 @@ from collections.abc import AsyncIterator
 
 import asyncpg
 from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    AsyncSession,
+    async_sessionmaker,
+)
 
 from core.config import settings
 
-engine = create_async_engine(settings.database_url, echo=False, poolclass=pool.NullPool)
-async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+# Подключение к БД работает как в исходной версии проекта: NullPool —
+# по одному подключению на каждый запрос, без пула на стороне приложения.
+if settings.database_url:
+    engine = create_async_engine(settings.database_url, echo=False, poolclass=pool.NullPool)
+else:
+    # Учётные данные не заданы (например, в CI): движок не создаём,
+    # тесты используют свой in-memory SQLite (см. tests/conftest.py).
+    engine = None
+async_session_maker = async_sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False
+) if engine is not None else None
 
 # Строгая валидация имени базы данных.
 # - Начинается с буквы или подчёркивания
@@ -95,7 +108,8 @@ def run_migrations(max_retries: int = 5, retry_delay: float = 2.0) -> None:
 
 
 async def dispose_engine() -> None:
-    await engine.dispose()
+    if engine is not None:
+        await engine.dispose()
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:

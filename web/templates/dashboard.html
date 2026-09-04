@@ -1,31 +1,7 @@
 ﻿{% extends "base.html" %}
-{% block title %}Дашборд - Admin Panel{% endblock %}
+{% block title %}Дашборд - OSS Web Panel{% endblock %}
 
 {% block content %}
-<!-- Hero-секция дашборда -->
-<div class="hero-section">
-    <div class="hero-content">
-        <div class="hero-text">
-            <h1>Student Bot</h1>
-            <div class="hero-subtitle">Система управления обращениями студентов — всё в одном месте</div>
-        </div>
-        <div class="hero-stats">
-            <div class="hero-stat">
-                <div class="hero-stat-value" data-counter>{{ stats.total_tickets }}</div>
-                <div class="hero-stat-label">Всего заявок</div>
-            </div>
-            <div class="hero-stat">
-                <div class="hero-stat-value" data-counter>{{ stats.new_tickets }}</div>
-                <div class="hero-stat-label">Новых</div>
-            </div>
-            <div class="hero-stat">
-                <div class="hero-stat-value" data-counter>{{ stats.in_progress }}</div>
-                <div class="hero-stat-label">В работе</div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <div class="page-header">
     <div>
         <div class="crumb">Обзор</div>
@@ -84,14 +60,14 @@
                     <td>{{ ticket.topic or '—' }}</td>
                     <td>{{ ticket.department.name if ticket.department else '—' }}</td>
                     <td>
-                        {% if ticket.status.value == 'Новое' %}
-                        <span class="badge badge-new">{{ ticket.status.value }}</span>
-                        {% elif ticket.status.value == 'В обработке' %}
-                        <span class="badge badge-in-progress">{{ ticket.status.value }}</span>
-                        {% elif 'Выполнено' in ticket.status.value %}
-                        <span class="badge badge-completed">{{ ticket.status.value }}</span>
+                        {% if ticket.status.value == 'NEW' %}
+                        <span class="badge badge-new">{{ ticket.status|status_label }}</span>
+                        {% elif ticket.status.value == 'IN_PROGRESS' %}
+                        <span class="badge badge-in-progress">{{ ticket.status|status_label }}</span>
+                        {% elif ticket.status.value in ('COMPLETED', 'COMPLETED_AUTO') %}
+                        <span class="badge badge-completed">{{ ticket.status|status_label }}</span>
                         {% else %}
-                        <span class="badge badge-anonymous">{{ ticket.status.value }}</span>
+                        <span class="badge badge-anonymous">{{ ticket.status|status_label }}</span>
                         {% endif %}
                     </td>
                     <td>{{ ticket.created_at.strftime('%d.%m.%Y %H:%M') if ticket.created_at else '—' }}</td>
@@ -113,9 +89,10 @@
         <h2>О системе</h2>
     </div>
     <p class="dashboard-note">
-        <strong>Student Bot</strong> — система управления обращениями студентов.<br>
-        Версия: <strong>1.0.0</strong><br>
-        Подключение: <strong>Tailscale</strong> (только из сети Tailscale)
+        <strong>OSS Bot</strong> — система управления обращениями студентов.<br>
+        Веб-панель: <strong>oss-web-panel</strong><br>
+        Версия: <strong>2.0.0</strong><br>
+        Доступ: <strong>только внутри Tailscale</strong> (наружу порты не публикуются)
     </p>
 </div>
 {% endblock %}

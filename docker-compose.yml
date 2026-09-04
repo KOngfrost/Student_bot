@@ -1,14 +1,18 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: student_bot_db
+    container_name: oss_bot_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      # Только scram-sha-256: пароль никогда не передаётся открытым текстом.
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     volumes:
-      - postgres_data_recovered:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+    # Порт наружу НЕ публикуем: БД доступна только внутри docker-сети.
+    # Это первый уровень защиты базы данных.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -22,7 +26,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: student_bot_migrate
+    container_name: oss_bot_migrate
     restart: "no"
     env_file:
       - .env
@@ -35,12 +39,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: student_bot_app
+    container_name: oss_bot_app
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      - HEARTBEAT_FILE=/tmp/student_bot_heartbeat
+      - HEARTBEAT_FILE=/tmp/oss_bot_heartbeat
     command: python main.py
     healthcheck:
       # Бот обновляет heartbeat-файл при обработке событий и раз в минуту
@@ -55,18 +59,38 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Tailscale запускается всегда (не по профилю): без tailnet панель и бот
+  # недоступны извне. Наружу (в интернет) не публикуется ни один порт.
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: oss_bot_tailscale
+    restart: unless-stopped
+    hostname: oss-web-panel
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_AUTH_KEY:?TAILSCALE_AUTH_KEY is required in .env}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=true
+      - TS_HOSTNAME=oss-web-panel
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+    healthcheck:
+      test: ["CMD", "tailscale", "status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Веб-панель видна ТОЛЬКО внутри tailnet: делит сетевой стек с Tailscale
+  # (network_mode: service:tailscale). Порты на хост (127.0.0.1) не публикуются.
+  # Доступ: https://oss-web-panel.<tailnet>.ts.net  (tailscale serve)
   web-admin:
     build:
       context: .
       dockerfile: Dockerfile.web
-    container_name: student_bot_web
+    container_name: oss_bot_web
     restart: unless-stopped
     env_file:
       - .env
-    # Панель доступна только с самого сервера (SSH-туннель).
-    # Для доступа через Tailscale см. docker-compose.tailscale.override.yml
-    ports:
-      - "127.0.0.1:8000:8000"
+    network_mode: "service:tailscale"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -78,30 +102,9 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-
-  # Tailscale: панель доступна только внутри вашей tailnet-сети.
-  # Включение: docker compose -f docker-compose.yml -f docker-compose.tailscale.override.yml --profile tailscale up -d
-  # Требуется TAILSCALE_AUTH_KEY в .env (https://login.tailscale.com/admin/settings/keys)
-  tailscale:
-    image: tailscale/tailscale:latest
-    container_name: student_bot_tailscale
-    restart: unless-stopped
-    profiles: ["tailscale"]
-    hostname: student-bot-panel
-    environment:
-      - TS_AUTHKEY=${TAILSCALE_AUTH_KEY:?TAILSCALE_AUTH_KEY is required for tailscale profile}
-      - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=true
-      - TS_HOSTNAME=student-bot-panel
-    volumes:
-      - tailscale_state:/var/lib/tailscale
-    healthcheck:
-      test: ["CMD", "tailscale", "status"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      tailscale:
+        condition: service_started
 
 volumes:
   postgres_data:
-  postgres_data_recovered:
   tailscale_state:

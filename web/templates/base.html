@@ -3,52 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Admin Panel{% endblock %}</title>
+    <title>{% block title %}OSS Web Panel{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <meta name="csrf-token" content="{{ csrf_token|default('') }}">
     <link rel="stylesheet" href="/static/style.css">
     <script nonce="{{ request.state.script_nonce|default('') }}">
-        // Применяем тему до отрисовки, чтобы не было «вспышки» светлой темы
-        (function () {
-            var theme = localStorage.getItem('theme');
-            if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-                document.documentElement.setAttribute('data-theme', 'dark');
-            }
-        })();
-    </script>
-    <script nonce="{{ request.state.script_nonce|default('') }}">
-        // Переключение светлой/тёмной темы с сохранением выбора
-        (function () {
-            function initThemeToggle() {
-                var toggle = document.getElementById('theme-toggle');
-                if (!toggle) return;
-                var icon = document.getElementById('theme-icon');
-                var label = document.getElementById('theme-label');
-
-                function sync() {
-                    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
-                    icon.textContent = dark ? '☀' : '☾';
-                    label.textContent = dark ? 'Светлая тема' : 'Тёмная тема';
-                }
-                sync();
-
-                toggle.addEventListener('click', function () {
-                    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
-                    if (dark) {
-                        document.documentElement.removeAttribute('data-theme');
-                        localStorage.setItem('theme', 'light');
-                    } else {
-                        document.documentElement.setAttribute('data-theme', 'dark');
-                        localStorage.setItem('theme', 'dark');
-                    }
-                    sync();
-                });
-            }
-            document.addEventListener('DOMContentLoaded', initThemeToggle);
-        })();
-
         // CSRF: устанавливаем заголовок для всех fetch-запросов
         (function () {
             var token = document.querySelector('meta[name="csrf-token"]');
@@ -73,10 +34,10 @@
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <a href="/" class="brand">
-                    <span class="monogram">SB</span>
+                    <span class="monogram">OB</span>
                     <span>
-                        <span class="brand-name">Student Bot</span>
-                        <span class="brand-sub">Админ-панель</span>
+                        <span class="brand-name">OSS Bot</span>
+                        <span class="brand-sub">Панель управления</span>
                     </span>
                 </a>
                 <div class="user-info">
@@ -103,7 +64,6 @@
                 <a class="nav-link {% if active == 'admins' %}active{% endif %}" href="/admin/admins/"><span class="ico">♙</span>Администраторы</a>
                 {% endif %}
             </nav>
-            <button class="theme-toggle" id="theme-toggle" type="button"><span id="theme-icon">☾</span><span id="theme-label">Тёмная тема</span></button>
         </aside>
         <main class="main-content">
             <button class="mobile-menu-backdrop" type="button" aria-label="Закрыть меню"></button>

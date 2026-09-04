@@ -15,6 +15,7 @@
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -25,8 +26,11 @@ from core.vk_client import OUTBOX_MAX_ATTEMPTS, send_vk_message
 
 logger = logging.getLogger(__name__)
 
-OUTBOX_BATCH_SIZE = 20
-OUTBOX_RETRY_DELAY_SECONDS = 30
+# Размер партии и частота опроса настраиваются в .env (OUTBOX_BATCH_SIZE,
+# OUTBOX_INTERVAL_SECONDS). При нагрузке >2500 пользователей разумнее
+# выносить больше сообщений за проход, чем делать частые мелкие опросы.
+OUTBOX_BATCH_SIZE = int(os.getenv("OUTBOX_BATCH_SIZE", "50"))
+OUTBOX_RETRY_DELAY_SECONDS = int(os.getenv("OUTBOX_INTERVAL_SECONDS", "30"))
 
 
 def fire_outbox_delivery() -> None:
@@ -92,12 +96,13 @@ async def deliver_pending_messages(
     return delivered
 
 
-async def outbox_worker_loop(interval: float = 30.0) -> None:
+async def outbox_worker_loop(interval: float | None = None) -> None:
     """Бесконечный цикл доставки outbox (запускается в event loop бота)."""
+    delay = interval or OUTBOX_RETRY_DELAY_SECONDS
     while True:
         try:
             await deliver_pending_messages()
         except Exception:
             # Ни одна ошибка не должна ронять воркер
             logger.exception("Outbox worker: ошибка при доставке")
-        await asyncio.sleep(interval)
+        await asyncio.sleep(delay)

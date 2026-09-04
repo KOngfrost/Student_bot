@@ -34,9 +34,9 @@ setup_logging(log_dir=os.path.join(os.path.dirname(__file__), "..", "logs"))
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Student Bot Admin Panel",
-    description="Веб-админка для управления ботом студенческого совета",
-    version="1.0.0",
+    title="oss-web-panel",
+    description="Веб-админка OSS Bot: управление обращениями студентов",
+    version="2.0.0",
 )
 
 # === Middleware безопасности (в порядке приоритета) ===

@@ -22,14 +22,16 @@ from core.heartbeat import touch_heartbeat
 from core.models import Admin, Ticket, TicketStatus, User, UserRole
 from core.reporting import _fetch_report_data, build_daily_report, get_report_for_date, get_report_for_period, parse_report_date, send_report_to_vk
 from core.ticket_service import (
+    STATUS_LABELS,
     StatusTransitionError,
     change_ticket_status,
-    create_anonymous_ticket,
+    create_ticket,
     format_ticket_details,
     format_ticket_list,
     get_ticket_messages,
     get_user_tickets,
     reply_to_ticket,
+    status_label,
 )
 from bots.vk.keyboards import build_admin_keyboard, build_main_keyboard, build_tickets_keyboard
 
@@ -45,10 +47,10 @@ class ReportStates(BaseStateGroup):
     WAITING_DATE_TO = "waiting_date_to"
 
 
-# FSM StateGroup для анонимных обращений
-class AnonymousStates(BaseStateGroup):
-    WAITING_DESCRIPTION = "waiting_anonymous_description"
-    WAITING_IDENTITY_CHOICE = "waiting_anonymous_identity_choice"
+# FSM StateGroup для создания обращений (разделы меню, «Задать вопрос», анонимные)
+class TicketStates(BaseStateGroup):
+    WAITING_DESCRIPTION = "waiting_description"
+    WAITING_IDENTITY_CHOICE = "waiting_identity_choice"
 
 
 def build_anonymous_choice_keyboard() -> str:
@@ -135,87 +137,87 @@ async def ticket_details_handler(message: Message):
     )
 
 
-@vk_bot.on.private_message(text=["Жилбыт", "Жилбыт"])
+async def _start_ticket_flow(
+    message: Message,
+    topic: str,
+    department: str | None = None,
+) -> None:
+    """Единый старт создания обращения: разделы меню, вопрос или анонимный запрос."""
+    touch_heartbeat()
+    await vk_bot.state_dispenser.set(
+        message.from_id,
+        TicketStates.WAITING_DESCRIPTION,
+        topic=topic,
+        department=department,
+    )
+    header = f"Раздел «{topic}»" if department else "Задать вопрос"
+    await message.answer(
+        f"{header}\n\n"
+        "Опишите вашу проблему одним сообщением: что случилось, когда и где.\n"
+        "Чем подробнее описание, тем быстрее ответственный отдел сможет помочь.\n\n"
+        "После текста вы сможете выбрать, оставить ли свой VK ID для ответа.",
+        keyboard=build_main_keyboard(),
+    )
+
+
+@vk_bot.on.private_message(text=["Жилбыт", "жилбыт"])
 async def housing_section(message: Message):
-    await message.answer(
-        "Раздел «Жилбыт» открыт. Здесь можно будет сообщить о проблеме в общежитии "
-        "или задать вопрос по бытовым условиям. Форма обращения готовится.",
-        keyboard=build_main_keyboard(),
-    )
+    """Раздел «Жилбыт»: бытовые условия и проблемы в общежитии."""
+    await _start_ticket_flow(message, "Жилбыт", "Жилбыт")
 
 
-@vk_bot.on.private_message(text=["Культмасс", "Культмасс"])
+@vk_bot.on.private_message(text=["Культмасс", "культмасс"])
 async def culture_section(message: Message):
-    await message.answer(
-        "Раздел «Культмасс» открыт. Здесь появятся мероприятия, анонсы и запись "
-        "на события.",
-        keyboard=build_main_keyboard(),
-    )
+    """Раздел «Культмасс»: мероприятия, анонсы, запись на события."""
+    await _start_ticket_flow(message, "Культмасс", "Культмасс")
 
 
-@vk_bot.on.private_message(text=["Информ", "Информ"])
+@vk_bot.on.private_message(text=["Информ", "информ"])
 async def information_section(message: Message):
-    await message.answer(
-        "Раздел «Информ» открыт. Здесь будет справочная информация и ответы на "
-        "частые вопросы.",
-        keyboard=build_main_keyboard(),
-    )
+    """Раздел «Информ»: справочная информация и частые вопросы."""
+    await _start_ticket_flow(message, "Информ", "Информ")
 
 
-@vk_bot.on.private_message(text=["Корпоративный", "Корпоративный"])
+@vk_bot.on.private_message(text=["Корпоративный", "корпоративный"])
 async def corporate_section(message: Message):
-    await message.answer(
-        "Раздел «Корпоративный» открыт. Здесь можно будет обратиться по вопросам "
-        "мероприятий и жизни университета.",
-        keyboard=build_main_keyboard(),
-    )
+    """Раздел «Корпоративный»: вопросы мероприятий и жизни университета."""
+    await _start_ticket_flow(message, "Корпоративный", "Корпоративный")
 
 
 @vk_bot.on.private_message(text=["Задать вопрос", "задать вопрос"])
 async def question_section_start(message: Message):
-    touch_heartbeat()
-    await vk_bot.state_dispenser.set(
-        message.from_id,
-        AnonymousStates.WAITING_DESCRIPTION,
-        topic="Вопрос",
-    )
-    await message.answer(
-        "Опишите ваш вопрос или проблему одним сообщением.\n"
-        "После этого выберите, сохранять ли ваше имя для ответа в VK.",
-        keyboard=build_main_keyboard(),
-    )
+    """Общий вопрос без привязки к конкретному отделу."""
+    await _start_ticket_flow(message, "Вопрос")
 
 
 @vk_bot.on.private_message(text=["Анонимное обращение", "анонимное обращение"])
 async def anonymous_section_start(message: Message):
-    """Начало создания анонимной заявки — бот запрашивает текст."""
+    """Начало анонимного обращения — бот запрашивает текст."""
     touch_heartbeat()
-    # Устанавливаем FSM-состояние
     await vk_bot.state_dispenser.set(
         message.from_id,
-        AnonymousStates.WAITING_DESCRIPTION,
+        TicketStates.WAITING_DESCRIPTION,
         topic="Анонимное обращение",
+        department=None,
     )
     await message.answer(
-        "🔒 Анонимное обращение\n\n"
-        "Вы можете анонимно сообщить о проблеме.\n"
-        "Ваше имя и VK ID НЕ будут привязаны к заявке.\n\n"
-        "Опишите вашу проблему или предложение в одном сообщении.\n"
-        "Чем подробнее — тем быстрее мы сможем помочь.\n\n"
-        "Введите текст обращения:",
+        "Анонимное обращение\n\n"
+        "Вы можете сообщить о проблеме без указания своего имени.\n"
+        "Ваше имя и VK ID не будут привязаны к обращению.\n\n"
+        "Опишите проблему в одном сообщении:",
         keyboard=build_main_keyboard(),
     )
 
 
-@vk_bot.on.private_message(state=AnonymousStates.WAITING_DESCRIPTION)
-async def anonymous_section_submit(message: Message):
+@vk_bot.on.private_message(state=TicketStates.WAITING_DESCRIPTION)
+async def ticket_description_handler(message: Message):
     """Получить текст обращения и запросить режим обратной связи."""
     touch_heartbeat()
     description = message.text.strip()
 
-    if not description or len(description) < 10:
+    if len(description) < 10:
         await message.answer(
-            "⚠️ Описание слишком короткое.\n\n"
+            "Описание слишком короткое.\n\n"
             "Пожалуйста, опишите проблему подробнее (минимум 10 символов).\n\n"
             "Введите текст обращения:"
         )
@@ -223,11 +225,13 @@ async def anonymous_section_submit(message: Message):
 
     state_peer = await vk_bot.state_dispenser.get(message.from_id)
     topic = state_peer.payload.get("topic", "Вопрос") if state_peer else "Вопрос"
+    department = state_peer.payload.get("department") if state_peer else None
     await vk_bot.state_dispenser.set(
         message.from_id,
-        AnonymousStates.WAITING_IDENTITY_CHOICE,
+        TicketStates.WAITING_IDENTITY_CHOICE,
         description=description,
         topic=topic,
+        department=department,
     )
     await message.answer(
         "Выберите режим обращения:\n\n"
@@ -238,50 +242,55 @@ async def anonymous_section_submit(message: Message):
 
 
 @vk_bot.on.private_message(
-    state=AnonymousStates.WAITING_IDENTITY_CHOICE,
+    state=TicketStates.WAITING_IDENTITY_CHOICE,
     text=["Остаться анонимным", "Остаться не анонимным"],
 )
-async def anonymous_section_choice(message: Message):
+async def ticket_identity_choice_handler(message: Message):
     """Создать обращение после выбора канала обратной связи."""
     keep_identity = message.text == "Остаться не анонимным"
     state_peer = await vk_bot.state_dispenser.get(message.from_id)
-    description = state_peer.payload.get("description", "") if state_peer else ""
-    topic = state_peer.payload.get("topic", "Вопрос") if state_peer else "Вопрос"
+    payload = state_peer.payload if state_peer else {}
+    description = payload.get("description", "")
+    topic = payload.get("topic", "Вопрос")
+    department = payload.get("department")
 
     try:
-        ticket = await create_anonymous_ticket(
+        ticket = await create_ticket(
             topic=topic,
             description=description,
             vk_id=message.from_id,
             keep_identity=keep_identity,
+            department_name=department,
         )
 
+        department_name = ticket.department.name if ticket.department else "Общая"
+        answer_tail = (
+            "Администратор сможет ответить вам в этом диалоге."
+            if keep_identity
+            else "VK ID не сохранён. Ответ через VK на это обращение не отправляется."
+        )
         await message.answer(
-            f"✅ Ваше обращение принято!\n\n"
-            f"Номер заявки: #{ticket.id}\n"
-            f"Статус: {ticket.status.value}\n\n"
-            + (
-                "Администратор сможет ответить вам через VK."
-                if keep_identity
-                else "VK ID не сохранён. Ответ через VK на анонимные обращения не отправляется."
-            ),
+            f"Ваше обращение принято.\n\n"
+            f"Номер обращения: #{ticket.id}\n"
+            f"Раздел: {department_name}\n"
+            f"Статус: {status_label(ticket.status)}\n\n"
+            f"{answer_tail}",
             keyboard=await _main_keyboard_for(message.from_id),
         )
 
         await vk_bot.state_dispenser.delete(message.from_id)
 
     except Exception:
-        logger.exception("Ошибка при создании анонимной заявки")
+        logger.exception("Ошибка при создании обращения")
         await message.answer(
-            "❌ Произошла ошибка при отправке обращения.\n"
-            "Пожалуйста, попробуйте позже.",
+            "Не удалось отправить обращение. Попробуйте ещё раз позже.",
             keyboard=await _main_keyboard_for(message.from_id),
         )
         await vk_bot.state_dispenser.delete(message.from_id)
 
 
 @vk_bot.on.private_message(
-    text=["Админ", "Админ"]
+    text=["Админ", "админ"]
 )
 async def admin_panel(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
@@ -296,7 +305,9 @@ async def admin_panel(message: Message):
     await BotCore.log_action(user, "admin_panel", "Открыта админ-панель")
     await message.answer(
         "Админ-панель\n\n"
-        "Нажми «Сформировать отчет», чтобы получить файл в VK.",
+        "Доступные функции: просмотр заявок, формирование отчётов.\n"
+        "Нажмите «Заявки администратора» для просмотра активных заявок.\n"
+        "Нажмите «Сформировать отчет», чтобы получить файл отчёта в VK.",
         keyboard=build_admin_keyboard(),
     )
 
@@ -367,11 +378,13 @@ async def admin_tickets_handler(message: Message):
         if len(description) > 500:
             description = description[:500].rstrip() + "..."
         lines.append(
-            f"\n#{ticket.id} [{ticket.status.value}] {ticket.topic or 'Без темы'}\n"
+            f"\n#{ticket.id} [{status_label(ticket.status)}] {ticket.topic or 'Без темы'}\n"
             f"Описание: {description}"
         )
-    lines.append("\nОтвет: Ответ #12: текст ответа")
-    lines.append("Статус: Статус #12: В обработке")
+    lines.append("")
+    lines.append("Как ответить на заявку:")
+    lines.append("  Ответ #N: текст ответа. Например: «Ответ #12: Уже исправили»")
+    lines.append("  Статус #N: статус. Например: «Статус #12: Выполнено»")
     await message.answer("\n".join(lines), keyboard=build_admin_keyboard())
 
 
@@ -404,6 +417,19 @@ async def admin_reply_handler(message: Message):
     )
 
 
+def _parse_status(value: str) -> TicketStatus:
+    """Распознать статус по имени enum или по русской метке."""
+    value = value.strip()
+    try:
+        return TicketStatus(value)
+    except ValueError:
+        pass
+    for status, label in STATUS_LABELS.items():
+        if label.lower() == value.lower():
+            return status
+    raise ValueError(f"Неизвестный статус: {value!r}")
+
+
 @vk_bot.on.private_message(RegexRule(r"^Статус #\d+: .+"))
 async def admin_status_handler(message: Message):
     match = re.match(r"^Статус #(\d+):\s*(.+)$", message.text or "", re.DOTALL)
@@ -414,16 +440,22 @@ async def admin_status_handler(message: Message):
         )
         return
     try:
-        new_status = TicketStatus(match.group(2).strip())
-        ticket = await change_ticket_status(int(match.group(1)), new_status, str(message.from_id))
+        new_status = _parse_status(match.group(2))
+        ticket = await change_ticket_status(
+            int(match.group(1)), new_status, str(message.from_id)
+        )
     except (ValueError, StatusTransitionError):
         await message.answer(
-            "Неизвестный статус или недопустимый переход.",
+            "Неизвестный статус или недопустимый переход.\n"
+            "Допустимые статусы: Новое, В обработке, Выполнено, Передано в администрацию, "
+            "Передано в хозчасть.",
             keyboard=build_admin_keyboard(),
         )
         return
     await message.answer(
-        "Статус заявки изменён." if ticket else "Заявка не найдена.",
+        f"Статус заявки #{match.group(1)} изменён: {status_label(ticket.status)}."
+        if ticket
+        else "Заявка не найдена.",
         keyboard=build_admin_keyboard(),
     )
 
@@ -458,7 +490,10 @@ async def report_handler(message: Message):
             keyboard=build_admin_keyboard(),
         )
         return
-    await message.answer("Отчет сформирован и отправлен.", keyboard=build_admin_keyboard())
+    await message.answer(
+        f"Отчёт за {report_date:%d.%m.%Y} сформирован и отправлен вам в VK.",
+        keyboard=build_admin_keyboard(),
+    )
 
 
 @vk_bot.on.private_message(text="Отчет по дате")
@@ -558,7 +593,8 @@ async def report_by_period_input(message: Message):
         await BotCore.log_action(user, "report_generated", f"Сформирован отчёт за период {date_from} - {date_to}")
         await vk_bot.state_dispenser.delete(message.from_id)
         await message.answer(
-            f"Отчет за период с {date_from:%d.%m.%Y} по {date_to:%d.%m.%Y} сформирован и отправлен.",
+            f"Отчёт за период с {date_from:%d.%m.%Y} по {date_to:%d.%m.%Y} "
+            "сформирован и отправлен вам в VK.",
             keyboard=build_admin_keyboard(),
         )
     except Exception:
@@ -584,7 +620,7 @@ async def fallback_handler(message: Message):
     """Возвращает пользователя в основное меню для неизвестных сообщений."""
     touch_heartbeat()
     await message.answer(
-        "Выберите действие в основном меню.",
+        "Я не распознал команду. Выберите действие в меню:",
         keyboard=await _main_keyboard_for(message.from_id),
     )
 

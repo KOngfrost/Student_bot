@@ -4,6 +4,12 @@ from fastapi.templating import Jinja2Templates
 # web.main импортирует роутеры, а роутерам нужен только templates.
 templates = Jinja2Templates(directory="web/templates")
 
+# Фильтр: русская метка статуса заявки вместо английского enum-значения.
+# Используется в шаблонах как {{ ticket.status|status_label }}.
+from core.ticket_service import status_label  # noqa: E402
+
+templates.env.filters["status_label"] = status_label
+
 
 def security_context(request):
     """Контекстный процессор для передачи CSRF-токена и CSP-nonce в шаблоны.

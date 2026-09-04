@@ -1,8 +1,8 @@
-"""Настройка логирования для проекта Student Bot.
+"""Настройка логирования для проекта OSS Bot.
 
 Выводит логи в stdout и в файлы с ротацией:
-- student_bot.log — все логи уровня INFO и выше
-- student_bot_error.log — только ошибки (ERROR и выше)
+- oss_bot.log — все логи уровня INFO и выше
+- oss_bot_error.log — только ошибки (ERROR и выше)
 
 Ротация: ежедневно или при достижении 10 MB.
 Хранится 30 архивных файлов.
@@ -49,7 +49,7 @@ def setup_logging(
     root_logger.addHandler(stdout_handler)
 
     # Handler для общего лога (INFO и выше)
-    general_log = os.path.join(log_dir, "student_bot.log")
+    general_log = os.path.join(log_dir, "oss_bot.log")
     general_handler = logging.handlers.RotatingFileHandler(
         general_log,
         maxBytes=10 * 1024 * 1024,  # 10 MB
@@ -61,7 +61,7 @@ def setup_logging(
     root_logger.addHandler(general_handler)
 
     # Handler для ошибок (ERROR и выше) — отдельный файл
-    error_log = os.path.join(log_dir, "student_bot_error.log")
+    error_log = os.path.join(log_dir, "oss_bot_error.log")
     error_handler = logging.handlers.RotatingFileHandler(
         error_log,
         maxBytes=10 * 1024 * 1024,  # 10 MB

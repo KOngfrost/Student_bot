@@ -1,14 +1,7 @@
 ﻿{% extends "base.html" %}
-{% block title %}Заявки - Admin Panel{% endblock %}
+{% block title %}Заявки - OSS Web Panel{% endblock %}
 
 {% block content %}
-<style nonce="{{ request.state.style_nonce|default('') }}">
-    .pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; flex-wrap: wrap; }
-    .page-link { color: #4f46e5; text-decoration: none; font-weight: 600; padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 8px; }
-    .page-link:hover { text-decoration: underline; }
-    .page-info { color: #64748b; font-size: 0.9em; }
-    .tickets-count { padding: 8px 0; font-size: 0.9em; color: #64748b; }
-</style>
 <div class="page-header">
     <div>
         <div class="crumb">Обработка</div>
@@ -37,8 +30,8 @@
             {% for value, label in status_choices %}
             <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
-            <option value="Выполнено (авто)" {% if selected_status == 'Выполнено (авто)' %}selected{% endif %}>Выполнено (авто)</option>
-            <option value="Анонимное" {% if selected_status == 'Анонимное' %}selected{% endif %}>Анонимное</option>
+            <option value="COMPLETED_AUTO" {% if selected_status == 'COMPLETED_AUTO' %}selected{% endif %}>Выполнено (авто)</option>
+            <option value="ANONYMOUS" {% if selected_status == 'ANONYMOUS' %}selected{% endif %}>Анонимное</option>
         </select>
         <select id="dept-filter" name="department_id" data-filter-table>
             <option value="">Все отделы</option>
@@ -75,19 +68,19 @@
                     </td>
                     <td data-label="Отдел">{{ ticket.department.name if ticket.department else '—' }}</td>
                     <td data-label="Статус">
-                        {% if ticket.status.value == 'Новое' %}
-                        <span class="badge badge-new">{{ ticket.status.value }}</span>
-                        {% elif ticket.status.value == 'В обработке' %}
-                        <span class="badge badge-in-progress">{{ ticket.status.value }}</span>
-                        {% elif 'Выполнено' in ticket.status.value %}
-                        <span class="badge badge-completed">{{ ticket.status.value }}</span>
+                        {% if ticket.status.value == 'NEW' %}
+                        <span class="badge badge-new">{{ ticket.status|status_label }}</span>
+                        {% elif ticket.status.value == 'IN_PROGRESS' %}
+                        <span class="badge badge-in-progress">{{ ticket.status|status_label }}</span>
+                        {% elif ticket.status.value in ('COMPLETED', 'COMPLETED_AUTO') %}
+                        <span class="badge badge-completed">{{ ticket.status|status_label }}</span>
                         {% else %}
-                        <span class="badge badge-anonymous">{{ ticket.status.value }}</span>
+                        <span class="badge badge-anonymous">{{ ticket.status|status_label }}</span>
                         {% endif %}
                     </td>
                     <td data-label="Аноним">
                         {% if ticket.is_anonymous %}
-                        ⚠️
+                        <span class="badge badge-anonymous">Аноним</span>
                         {% else %}
                         —
                         {% endif %}
@@ -145,6 +138,15 @@
 window.CSRF_FORM_TOKEN = '{{ csrf_token }}';
 window.CURRENT_ROLE = '{{ user.role if user else "" }}';
 window.STATUS_CHOICES = {{ status_choices | tojson }};
+window.STATUS_LABELS = {
+    'NEW': 'Новое',
+    'IN_PROGRESS': 'В обработке',
+    'TRANSFERRED_ADMIN': 'Передано в администрацию',
+    'TRANSFERRED_HOUSEKEEPING': 'Передано в хозчасть',
+    'COMPLETED': 'Выполнено',
+    'COMPLETED_AUTO': 'Выполнено (авто)',
+    'ANONYMOUS': 'Анонимное'
+};
 
 function filterTable() {
     const search = document.getElementById('search').value.toLowerCase();
@@ -178,7 +180,7 @@ function openTicket(id) {
             body += '<div class="detail-block"><strong>Описание:</strong><div class="detail-box">' + escapeHtml(ticket.description || '—') + '</div></div>';
             body += '<div class="detail-block"><strong>Пользователь:</strong> ' + (ticket.user ? (ticket.user.full_name || 'Аноним') : 'Аноним') + '</div>';
             body += '<div class="detail-block"><strong>Отдел:</strong> ' + (ticket.department ? ticket.department.name : '—') + '</div>';
-            body += '<div class="detail-block"><strong>Статус:</strong> ' + escapeHtml(ticket.status.value) + '</div>';
+            body += '<div class="detail-block"><strong>Статус:</strong> ' + escapeHtml((window.STATUS_LABELS[ticket.status.value] || ticket.status.value)) + '</div>';
             body += '<div class="detail-block"><strong>Дата:</strong> ' + (ticket.created_at ? new Date(ticket.created_at).toLocaleString('ru-RU') : '—') + '</div>';
 
             // История переписки
