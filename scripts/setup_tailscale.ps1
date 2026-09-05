@@ -32,7 +32,9 @@ try {
     }
 
     Write-Host "Включаем HTTPS для панели..."
-    docker @compose exec -T tailscale tailscale serve --bg http://localhost:8000
+    # Сначала удаляем старую настройку serve (если была), затем настраиваем корректно
+    try { docker @compose exec -T tailscale tailscale serve --delete http://localhost:8000 } catch {}
+    docker @compose exec -T tailscale tailscale serve http://localhost:8000
 
     $status = (docker @compose exec -T tailscale tailscale status --json | Out-String) | ConvertFrom-Json
     $dns = if ($status.Self.DNSName) { $status.Self.DNSName.TrimEnd('.') } else { "oss-web-panel.<tailnet>.ts.net" }

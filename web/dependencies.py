@@ -183,3 +183,59 @@ async def get_admin_scope(session: AsyncSession, user: dict) -> tuple[bool, int 
         if admin:
             return False, admin.department_id
     return False, None
+
+
+async def get_departments_for_user(session: AsyncSession, user: dict) -> list:
+    """Загрузить список отделов, видимых пользователю.
+    
+    Возвращает список Department:
+    - суперадмин: все отделы
+    - админ отдела: только свой отдел
+    - VIEWER: все отделы
+    """
+    from core.models import Department
+    from sqlalchemy import select
+    
+    role = role_of(user)
+    if role == WebRole.SUPERADMIN or role == WebRole.VIEWER:
+        return (await session.execute(
+            select(Department).order_by(Department.name)
+        )).scalars().all()
+    
+    if role == WebRole.DEPARTMENT_ADMIN:
+        web_user_id = user.get("web_user_id")
+        if web_user_id:
+            web_user = await session.get(WebUser, web_user_id)
+            if web_user and web_user.department_id:
+                dept = await session.get(Department, web_user.department_id)
+                return [dept] if dept else []
+        
+        admin_user_id = user.get("user_id")
+        if admin_user_id:
+            admin = await session.get(Admin, admin_user_id)
+            if admin and admin.department_id:
+                dept = await session.get(Department, admin.department_id)
+                return [dept] if dept else []
+    
+    return []
+
+
+async def get_admin_scope_for_vk_id(session: AsyncSession, vk_id: int) -> tuple[bool, int | None]:
+    """Определить область видимости пользователя по VK ID (для VK-бота).
+
+    Возвращает (is_super, dept_id):
+    - суперадмин: (True, None) — видят все отделы;
+    - админ отдела: (False, department_id) — видят только свой отдел;
+    - обычный пользователь: (False, None) — нет доступа.
+
+    БЕЗОПАСНОСТЬ: department_id проверяется через БД (таблица admins).
+    """
+    from core.models import Admin, Department, UserRole
+
+    admin = await session.scalar(
+        select(Admin).join(User, Admin.user_id == User.id).where(User.vk_id == vk_id)
+    )
+    if admin is None:
+        return False, None
+    is_super = admin.role == UserRole.SUPERADMIN
+    return is_super, admin.department_id if not is_super else None

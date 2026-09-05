@@ -1,4 +1,4 @@
-﻿"""
+"""
 Маршруты логов.
 
 Безопасность:
@@ -7,16 +7,18 @@
 - IDOR: суперадмин видит все логи, обычный админ — логи своего отдела
 """
 
+import logging
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
-from datetime import datetime
-import logging
 
 from core.database import async_session_maker
 from core.models import Admin, Log
 from web.dependencies import get_admin_scope, require_auth
+from web.security.csrf import get_csrf_token
 from web.templating import templates
 from web.security.middleware import escape_for_csv, sanitize_csv_field
 
@@ -27,18 +29,13 @@ router = APIRouter()
 LOGS_PER_PAGE = 100  # Пагинация: 100 записей на страницу
 
 
-require_admin = require_auth
-
-
 @router.get("/")
 async def logs_page(
     request: Request,
     page: int = Query(default=1, ge=1, description="Номер страницы"),
-    user=Depends(require_admin),
+    user=Depends(require_auth),
 ):
     """Страница логов с пагинацией."""
-    from web.security.csrf import get_csrf_token
-
     logs = []
     db_error = False
     total = 0
@@ -51,7 +48,6 @@ async def logs_page(
             allowed_user_ids = select(Admin.user_id).where(Admin.department_id == dept_id)
 
             # Общее количество для пагинации
-            from sqlalchemy import func
             count_stmt = select(func.count(Log.id))
             if not is_super:
                 count_stmt = count_stmt.where(Log.user_id.in_(allowed_user_ids))
@@ -91,7 +87,7 @@ async def logs_page(
 
 
 @router.get("/export")
-async def export_logs(user=Depends(require_admin)):
+async def export_logs(user=Depends(require_auth)):
     """Экспорт логов в CSV с защитой от CSV-injection.
 
     Безопасность:

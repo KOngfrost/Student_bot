@@ -1,28 +1,16 @@
 from fastapi.templating import Jinja2Templates
+from fastapi import Request
 
 # Вынесено в отдельный модуль, чтобы избежать циклического импорта:
 # web.main импортирует роутеры, а роутерам нужен только templates.
 templates = Jinja2Templates(directory="web/templates")
 
-# Фильтр: русская метка статуса заявки вместо английского enum-значения.
-# Используется в шаблонах как {{ ticket.status|status_label }}.
+# Фильтры статусов заявки:
+# {{ ticket.status|status_label }} — русская метка,
+# {{ ticket.status|status_badge }} — CSS-класс бейджа.
 from core.ticket_service import status_label  # noqa: E402
+from web.constants import status_badge_class  # noqa: E402
 
 templates.env.filters["status_label"] = status_label
+templates.env.filters["status_badge"] = status_badge_class
 
-
-def security_context(request):
-    """Контекстный процессор для передачи CSRF-токена и CSP-nonce в шаблоны.
-    
-    Безопасность:
-    - CSRF-токен: для защиты от CSRF-атак
-    - CSP nonce: для защиты от XSS (используется в тегах <script nonce="...">)
-    """
-    csrf_token = request.session.get("csrf_token", "")
-    script_nonce = getattr(request.state, "script_nonce", "")
-    style_nonce = getattr(request.state, "style_nonce", "")
-    return {
-        "csrf_token": csrf_token,
-        "script_nonce": script_nonce,
-        "style_nonce": style_nonce,
-    }

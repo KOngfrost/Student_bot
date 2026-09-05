@@ -20,7 +20,7 @@ from core.bot_core import BotCore
 from core.database import async_session_maker
 from core.heartbeat import touch_heartbeat
 from core.models import Admin, Ticket, TicketStatus, User, UserRole
-from core.reporting import _fetch_report_data, build_daily_report, get_report_for_date, get_report_for_period, parse_report_date, send_report_to_vk
+from core.reporting import build_daily_report, get_app_tz, get_report_for_date, get_report_for_period, parse_report_date, send_report_to_vk
 from core.ticket_service import (
     STATUS_LABELS,
     StatusTransitionError,
@@ -33,6 +33,7 @@ from core.ticket_service import (
     reply_to_ticket,
     status_label,
 )
+from web.dependencies import get_admin_scope_for_vk_id
 from bots.vk.keyboards import build_admin_keyboard, build_main_keyboard, build_tickets_keyboard
 
 vk_bot = Bot(token=settings.VK_BOT_TOKEN)
@@ -321,42 +322,33 @@ async def regular_menu_handler(message: Message):
     )
 
 
-async def _admin_ticket_scope(vk_id: int) -> tuple[bool, set[int]]:
-    if BotCore.is_admin_vk_id(vk_id):
-        return True, set()
-    async with async_session_maker() as session:
-        admin = await session.scalar(
-            select(Admin).join(User, Admin.user_id == User.id).where(User.vk_id == vk_id)
-        )
-        if admin is None:
-            return False, set()
-        return admin.role == UserRole.SUPERADMIN, {admin.department_id}
-
-
 @vk_bot.on.private_message(text=["Заявки администратора", "заявки администратора"])
 async def admin_tickets_handler(message: Message):
     """Показать оператору заявки, доступные его отделу."""
-    is_super, departments = await _admin_ticket_scope(message.from_id)
-    if not is_super and not departments:
+    async with async_session_maker() as session:
+        is_super, dept_id = await get_admin_scope_for_vk_id(session, message.from_id)
+    
+    if not is_super and dept_id is None:
         await message.answer(
             "У вас нет доступа к заявкам администратора.",
             keyboard=await _main_keyboard_for(message.from_id),
         )
         return
+    
     async with async_session_maker() as session:
         stmt = (
             select(Ticket).options(selectinload(Ticket.department))
             .order_by(Ticket.created_at.desc()).limit(20)
         )
-        if not is_super:
-            stmt = stmt.where(Ticket.department_id.in_(departments))
+        if not is_super and dept_id is not None:
+            stmt = stmt.where(Ticket.department_id == dept_id)
         count_stmt = select(func.count(Ticket.id)).where(
             Ticket.status.not_in((TicketStatus.COMPLETED, TicketStatus.COMPLETED_AUTO))
         )
         total_count_stmt = select(func.count(Ticket.id))
-        if not is_super:
-            count_stmt = count_stmt.where(Ticket.department_id.in_(departments))
-            total_count_stmt = total_count_stmt.where(Ticket.department_id.in_(departments))
+        if not is_super and dept_id is not None:
+            count_stmt = count_stmt.where(Ticket.department_id == dept_id)
+            total_count_stmt = total_count_stmt.where(Ticket.department_id == dept_id)
         pending_count = await session.scalar(count_stmt)
         total_count = await session.scalar(total_count_stmt)
         tickets = list((await session.scalars(stmt)).all())
@@ -389,12 +381,12 @@ async def admin_tickets_handler(message: Message):
 
 
 async def _operator_can_access(vk_id: int, ticket_id: int) -> bool:
-    is_super, departments = await _admin_ticket_scope(vk_id)
-    if is_super:
-        return True
     async with async_session_maker() as session:
+        is_super, dept_id = await get_admin_scope_for_vk_id(session, vk_id)
+        if is_super:
+            return True
         ticket = await session.get(Ticket, ticket_id)
-        return ticket is not None and ticket.department_id in departments
+        return ticket is not None and ticket.department_id == dept_id
 
 
 @vk_bot.on.private_message(RegexRule(r"^Ответ #\d+: .+"))
@@ -407,7 +399,9 @@ async def admin_reply_handler(message: Message):
         )
         return
     ticket_id, text = int(match.group(1)), match.group(2).strip()
-    ticket, delivered = await reply_to_ticket(ticket_id, str(message.from_id), text)
+    ticket, delivered = await reply_to_ticket(
+        ticket_id=ticket_id, admin_username=str(message.from_id), message=text
+    )
     if ticket is None:
         await message.answer("Заявка не найдена.", keyboard=build_admin_keyboard())
         return
@@ -471,7 +465,7 @@ async def report_handler(message: Message):
         from core.reporting import get_app_tz
 
         report_date = datetime.now(get_app_tz()) - timedelta(days=1)
-        data = await _fetch_report_data(report_date)
+        data = await get_report_for_date(report_date.date())
         report_bytes = build_daily_report(data, report_date)
         filename = f"report_{report_date:%Y-%m-%d}.xlsx"
         await send_report_to_vk(

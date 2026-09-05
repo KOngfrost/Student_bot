@@ -1,0 +1,140 @@
+﻿{% extends "base.html" %}
+{% block title %}Администраторы - Admin Panel{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <div class="crumb">Доступ</div>
+        <h1>Администраторы</h1>
+        <div class="page-desc">Кто управляет ботом и какими отделами</div>
+    </div>
+    <div class="actions">
+        <button class="btn btn-success" data-open-modal="modal">Добавить админа</button>
+    </div>
+</div>
+
+{% if db_error %}
+<div class="alert alert-error">База данных недоступна — список администраторов не загружен. Проверьте, что PostgreSQL запущен (docker-compose up -d).</div>
+{% endif %}
+
+<div class="card">
+    
+    {% if success %}
+    <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    {% if created_credentials %}
+    <div class="alert alert-success">Данные для входа созданы. Логин: <strong>{{ created_credentials.username }}</strong>, пароль: <strong>{{ created_credentials.password }}</strong>. Сохраните их сейчас: повторно пароль не показывается.</div>
+    {% endif %}
+    
+    <div class="admins-grid">
+        {% for admin in admins %}
+        <div class="admin-card">
+            <div class="admin-card-top">
+                <div class="admin-avatar">
+                    {% set name = admin.user.full_name or 'VK' %}
+                    {% set parts = name.split(' ') %}
+                    {{ (parts[0][:1] ~ (parts[1][:1] if parts|length > 1 else '')) | upper }}
+                </div>
+                <div class="admin-card-top-info">
+                    <div class="admin-name">{{ admin.user.full_name or 'Без имени' }}</div>
+                    <div class="admin-vk">VK ID: {{ admin.user.vk_id }}</div>
+                </div>
+            </div>
+            <div class="admin-card-meta">
+                {% if admin.role.value == 'superadmin' %}
+                <span class="badge badge-completed">Суперадмин</span>
+                {% else %}
+                <span class="badge badge-new">Админ</span>
+                {% endif %}
+                <span class="admin-dept">{{ admin.department.name if admin.department else 'Без отдела' }}</span>
+            </div>
+            <div class="admin-card-footer">
+                <span class="admin-id">#{{ admin.id }}</span>
+                <form method="post" action="/admin/admins/{{ admin.id }}/delete"
+                              data-confirm="Удалить этого админа?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-danger btn-small">Удалить</button>
+                </form>
+            </div>
+        </div>
+        {% else %}
+        <div class="empty-state grid-full">
+            Администраторов пока нет
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Добавить администратора</h3>
+            <button class="close-btn" data-close-modal="modal">&times;</button>
+        </div>
+        <form method="POST" action="/admin/admins/">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group">
+                <label for="vk_id">VK ID пользователя</label>
+                <input type="number" id="vk_id" name="vk_id" required 
+                       placeholder="Например: 193626953">
+            </div>
+            <div class="form-group">
+                <label for="username">Логин веб-панели</label>
+                <input type="text" id="username" name="username" autocomplete="off" placeholder="Пусто: dept_admin_{{ user.get('user_id', 'ID') }}">
+            </div>
+            <div class="form-group">
+                <label for="password">Пароль веб-панели</label>
+                <input type="password" id="password" name="password" autocomplete="new-password" minlength="8" placeholder="Пусто: сгенерировать">
+            </div>
+            <div class="form-group">
+                <label for="full_name">ФИО (опционально)</label>
+                <input type="text" id="full_name" name="full_name" 
+                       placeholder="Иванов Иван">
+            </div>
+            <div class="form-group">
+                <label for="department_id">Отдел (опционально)</label>
+                <select id="department_id" name="department_id">
+                    {% if user.role in ['SUPERADMIN', 'superadmin'] %}<option value="">— Без привязки —</option>{% endif %}
+                    {% for dept in departments %}
+                    <option value="{{ dept.id }}">{{ dept.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="role">Роль</label>
+                <select id="role" name="role" required>
+                    <option value="admin">Администратор отдела</option>
+                    {% if user.role in ['SUPERADMIN', 'superadmin'] %}<option value="superadmin">Суперадмин</option>{% endif %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-success btn-full">Добавить</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script nonce="{{ request.state.script_nonce|default('') }}">
+function openModal() {
+    document.getElementById('modal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('modal').classList.remove('active');
+}
+
+// Закрытие по клику вне модалки
+document.getElementById('modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+// Закрытие модалки по Escape
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeModal();
+});
+</script>
+{% endblock %}

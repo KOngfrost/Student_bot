@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Отделы - OSS Web Panel{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <div class="crumb">Отделы</div>
+        <h1>Управление отделами</h1>
+        <div class="page-desc">Отделы определяют рамки доступа: у каждого свой фрейм, суперадмин видит все</div>
+    </div>
+    <div class="actions">
+        <button class="btn btn-success" data-open-modal="create-modal">Создать отдел</button>
+    </div>
+</div>
+
+{% if db_error %}
+<div class="alert alert-error">База данных недоступна — отделы не загружены. Проверьте, что PostgreSQL запущен (docker-compose up -d).</div>
+{% endif %}
+
+<div class="card">
+    {% if success %}
+    <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <div class="departments-grid">
+        {% for dept in departments %}
+        {% set u = usage.get(dept.id, {}) %}
+        <div class="department-card">
+            <div class="department-card-top">
+                <span class="department-ico">◈</span>
+                <div>
+                    <div class="department-name">{{ dept.name }}</div>
+                    <div class="department-id">ID: {{ dept.id }}</div>
+                </div>
+            </div>
+            <div class="department-usage">
+                <span class="chip">Заявки: {{ u.get('tickets', 0) }}</span>
+                <span class="chip">БЗ: {{ u.get('knowledge', 0) }}</span>
+                <span class="chip">FAQ: {{ u.get('faq', 0) }}</span>
+                <span class="chip">События: {{ u.get('events', 0) }}</span>
+                <span class="chip">Польз.: {{ u.get('web_users', 0) }}</span>
+            </div>
+            <div class="department-actions">
+                <a href="/dept/{{ dept.id }}/" class="btn btn-secondary btn-small">Открыть фрейм</a>
+                <button class="btn btn-secondary btn-small" data-open-modal="rename-modal-{{ dept.id }}">Переименовать</button>
+                <form method="post" action="/departments/{{ dept.id }}/delete"
+                      data-confirm="Удалить отдел «{{ dept.name }}»? Удалить можно только пустой отдел.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-danger btn-small">Удалить</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Модалка переименования -->
+        <div id="rename-modal-{{ dept.id }}" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Переименовать «{{ dept.name }}»</h3>
+                    <button class="close-btn" data-close-modal="rename-modal-{{ dept.id }}">&times;</button>
+                </div>
+                <form method="POST" action="/departments/{{ dept.id }}/rename">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <div class="form-group">
+                        <label for="name-{{ dept.id }}">Новое название</label>
+                        <input type="text" id="name-{{ dept.id }}" name="name" required maxlength="80" value="{{ dept.name }}">
+                    </div>
+                    <button type="submit" class="btn btn-success btn-full">Сохранить</button>
+                </form>
+            </div>
+        </div>
+        {% else %}
+        <div class="empty-state grid-full">
+            Отделов пока нет. Создайте первый отдел — он появится в меню «Отделы»
+            и получит собственный фрейм с данными только этого отдела.
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Модалка создания -->
+<div id="create-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Создать отдел</h3>
+            <button class="close-btn" data-close-modal="create-modal">&times;</button>
+        </div>
+        <form method="POST" action="/departments/create">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group">
+                <label for="dept-name">Название отдела</label>
+                <input type="text" id="dept-name" name="name" required maxlength="80"
+                       placeholder="Например: Культурно-массовый отдел">
+            </div>
+            <button type="submit" class="btn btn-success btn-full">Создать</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -18,8 +18,12 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Устанавливаем URL из настроек приложения
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Устанавливаем URL из настроек приложения.
+# ВАЖНО: пароль может содержать % (URL-кодировка, напр. %40 для '@').
+# configparser трактует % как начало интерполяции и падает с
+# "invalid interpolation syntax". Экранируем % как %% — при чтении
+# get_main_option вернёт обратно одиночный %.
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 # Метаданные для автогенерации миграций
 target_metadata = Base.metadata

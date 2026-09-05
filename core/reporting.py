@@ -1,6 +1,6 @@
 import asyncio
 import logging
-import random
+import secrets
 import smtplib
 from datetime import date, datetime, timedelta, timezone
 from email.mime.application import MIMEApplication
@@ -18,10 +18,9 @@ from vkbottle.tools.uploader import DocMessagesUploader
 from core.config import settings
 from core.database import async_session_maker
 from core.models import Admin, Department, ReportRun, Ticket, TicketStatus, User, UserRole
+from core.ticket_service import COMPLETED_STATUSES, status_label
 
 logger = logging.getLogger(__name__)
-
-COMPLETED_STATUSES = {TicketStatus.COMPLETED, TicketStatus.COMPLETED_AUTO}
 
 
 def get_app_tz() -> ZoneInfo:
@@ -29,56 +28,7 @@ def get_app_tz() -> ZoneInfo:
     return ZoneInfo(settings.APP_TIMEZONE)
 
 
-def _status_text(status) -> str:
-    """Возвращает человекочитаемый статус заявки."""
-    if status is None:
-        return ""
-    if isinstance(status, TicketStatus):
-        return status.value
-    return str(status)
 
-
-def _user_full_name(user) -> str:
-    return user.full_name if user and user.full_name else "—"
-
-
-def _user_dormitory(user) -> str:
-    return user.dormitory if user and user.dormitory else "—"
-
-
-def _department_name(department) -> str:
-    return department.name if department else "—"
-
-
-async def _fetch_report_data(report_date: datetime) -> dict:
-    """Собирает данные для отчёта за указанную дату.
-
-    Границы суток считаются в часовом поясе приложения (APP_TIMEZONE),
-    в БД даты хранятся в UTC.
-    """
-    tz = get_app_tz()
-    if report_date.tzinfo is None:
-        report_date = report_date.replace(tzinfo=tz)
-    day_start = report_date.astimezone(tz).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    day_end = day_start + timedelta(days=1)
-
-    async with async_session_maker() as session:
-        tickets = await session.scalars(
-            select(Ticket)
-            .options(selectinload(Ticket.user), selectinload(Ticket.department))
-            .where(Ticket.created_at >= day_start, Ticket.created_at < day_end)
-            .order_by(Ticket.created_at)
-        )
-        departments = await session.scalars(
-            select(Department).order_by(Department.name)
-        )
-
-    return {
-        "tickets": list(tickets),
-        "departments": list(departments),
-    }
 
 
 def _build_summary_sheet(workbook: Workbook, data: dict) -> None:
@@ -184,17 +134,17 @@ def _build_details_sheet(workbook: Workbook, data: dict) -> None:
             full_name = "Аноним"
             dormitory = "Аноним"
         else:
-            full_name = _user_full_name(ticket.user)
-            dormitory = _user_dormitory(ticket.user)
+            full_name = ticket.user.full_name if ticket.user and ticket.user.full_name else "—"
+            dormitory = ticket.user.dormitory if ticket.user and ticket.user.dormitory else "—"
         sheet.append(
             [
                 ticket.id,
                 full_name,
                 dormitory,
-                _department_name(ticket.department),
+                ticket.department.name if ticket.department else "—",
                 ticket.topic or "",
                 ticket.description or "",
-                _status_text(ticket.status),
+                status_label(ticket.status),
                 ticket.response_text or "",
                 marker,
             ]
@@ -221,7 +171,7 @@ def _build_anonymous_sheet(workbook: Workbook, data: dict) -> None:
                 ticket.id,
                 ticket.topic or "",
                 ticket.description or "",
-                _status_text(ticket.status),
+                status_label(ticket.status),
                 ticket.created_at.strftime("%Y-%m-%d %H:%M") if ticket.created_at else "",
             ]
         )
@@ -287,7 +237,7 @@ async def send_report_to_vk(api, admin_vk_id: int, report_bytes: bytes, filename
 
     await api.messages.send(
         peer_id=admin_vk_id,
-        random_id=random.randint(1, 2**31 - 1),
+        random_id=secrets.randbelow(2**31) + 1,
         message="Ежедневный отчёт во вложении.",
         attachment=attachment,
     )
@@ -403,7 +353,7 @@ async def _run_report(api, admin_vk_ids: list[int], report_date: datetime) -> No
         logger.info("Отчёт за %s уже отправлен ранее — пропуск", report_day)
         return
 
-    data = await _fetch_report_data(report_date)
+    data = await get_report_for_date(report_date.date())
     report_bytes = build_daily_report(data, report_date)
     filename = f"report_{report_date:%Y-%m-%d}.xlsx"
 

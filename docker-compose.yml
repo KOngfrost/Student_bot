@@ -9,6 +9,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       # Только scram-sha-256: пароль никогда не передаётся открытым текстом.
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      # PGDATA в подкаталоге тома (рекомендация официального postgres-образа
+      # для named volume): initdb инициализирует только этот подкаталог и не
+      # падает с "directory ... exists but is not empty", если в корне тома
+      # остались файлы от прерванной инициализации.
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
     # Порт наружу НЕ публикуем: БД доступна только внутри docker-сети.
@@ -61,8 +66,11 @@ services:
 
   # Tailscale запускается всегда (не по профилю): без tailnet панель и бот
   # недоступны извне. Наружу (в интернет) не публикуется ни один порт.
+  # Автоматически включает HTTPS для веб-панели через tailscale serve.
   tailscale:
-    image: tailscale/tailscale:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.tailscale
     container_name: oss_bot_tailscale
     restart: unless-stopped
     hostname: oss-web-panel

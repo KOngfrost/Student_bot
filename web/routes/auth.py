@@ -27,6 +27,7 @@ from core import database as core_db
 from core.models import Log, LoginAttempt, WebRole, WebUser
 from core.vk_client import send_vk_message
 from web.security.csrf import get_csrf_token
+from web.security.middleware import RateLimiter
 from web.security.passwords import verify_password
 from web.templating import templates
 
@@ -61,10 +62,8 @@ _LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 # - Создание/удаление пользователей админа
 #
 # Лимит: 20 операций на IP за 5 минут → временная блокировка (1 минута).
-_CRUD_ATTEMPTS: dict[str, list[float]] = {}
-_CRUD_MAX_ATTEMPTS = 20
-_CRUD_WINDOW_SECONDS = 5 * 60
-_CRUD_BLOCK_SECONDS = 60
+# Используем RateLimiter из middleware.py вместо дублирующейся логики.
+_crud_rate_limiter = RateLimiter(max_requests=20, window_seconds=5 * 60)
 
 
 def _credentials_configured() -> bool:
@@ -349,29 +348,6 @@ async def logout(request: Request):
 # Rate limiting для CRUD-операций
 # ==========================================
 
-def _crud_memory_window(ip: str) -> list[float]:
-    """Очистить и вернуть окно попыток CRUD-операций из in-memory mirror."""
-    now = time.time()
-    window_start = now - _CRUD_WINDOW_SECONDS
-    attempts = [t for t in _CRUD_ATTEMPTS.get(ip, []) if t > window_start]
-    _CRUD_ATTEMPTS[ip] = attempts
-    return attempts
-
-
-def _is_crud_rate_limited(ip: str) -> bool:
-    """Превышен ли лимит CRUD-операций для IP."""
-    return len(_crud_memory_window(ip)) >= _CRUD_MAX_ATTEMPTS
-
-
-def _record_crud_attempt(ip: str) -> None:
-    """Зафиксировать попытку CRUD-операции."""
-    now = time.time()
-    window_start = now - _CRUD_WINDOW_SECONDS
-    attempts = [t for t in _CRUD_ATTEMPTS.get(ip, []) if t > window_start]
-    attempts.append(now)
-    _CRUD_ATTEMPTS[ip] = attempts
-
-
 def require_crud_rate_limit(request: Request):
     """Зависимость FastAPI для rate limiting CRUD-операций.
     
@@ -381,11 +357,9 @@ def require_crud_rate_limit(request: Request):
     """
     client_ip = _get_client_ip(request)
     
-    if _is_crud_rate_limited(client_ip):
+    if not _crud_rate_limiter.is_allowed(client_ip):
         logger.warning("CRUD rate limit превышен для IP %s", client_ip)
         raise HTTPException(
             status_code=429,
             detail="Слишком много запросов. Подождите 1 минуту.",
         )
-    
-    _record_crud_attempt(client_ip)

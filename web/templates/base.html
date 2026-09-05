@@ -9,24 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <meta name="csrf-token" content="{{ csrf_token|default('') }}">
     <link rel="stylesheet" href="/static/style.css">
-    <script nonce="{{ request.state.script_nonce|default('') }}">
-        // CSRF: устанавливаем заголовок для всех fetch-запросов
-        (function () {
-            var token = document.querySelector('meta[name="csrf-token"]');
-            if (!token) return;
-            window.CSRF_TOKEN = token.getAttribute('content');
-
-            var originalFetch = window.fetch;
-            window.fetch = function (url, options) {
-                options = options || {};
-                options.headers = options.headers || {};
-                if (!options.headers['X-CSRF-Token'] && window.CSRF_TOKEN) {
-                    options.headers['X-CSRF-Token'] = window.CSRF_TOKEN;
-                }
-                return originalFetch.call(this, url, options);
-            };
-        })();
-    </script>
+    <script src="/static/app.js" defer></script>
     </head>
 <body>
     {% if user is defined and user %}
@@ -42,8 +25,12 @@
                 </a>
                 <div class="user-info">
                     <span>{{ user.username }}</span>
-                    <small>{% if user.role in ['SUPERADMIN', 'superadmin'] %}Суперадмин{% else %}Админ отдела{% endif %}</small>
-                    {% if user.department_name %}<small>{{ user.department_name }}</small>{% endif %}
+                    <small>
+                        {% if user.role in ['SUPERADMIN', 'superadmin'] %}Суперадмин
+                        {% elif user.role == 'VIEWER' %}Наблюдатель
+                        {% else %}Админ отдела{% endif %}
+                    </small>
+                    {% if department_name %}<small>{{ department_name }}</small>{% endif %}
                     <form method="post" action="/auth/logout">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
                         <button class="btn-logout" type="submit">Выйти</button>
@@ -59,7 +46,16 @@
                 <a class="nav-link {% if active == 'faq' %}active{% endif %}" href="/faq/"><span class="ico">?</span>FAQ</a>
                 <a class="nav-link {% if active == 'events' %}active{% endif %}" href="/events/"><span class="ico">◷</span>События</a>
                 <a class="nav-link {% if active == 'logs' %}active{% endif %}" href="/logs/"><span class="ico">≡</span>Журнал</a>
-                {% if user.role in ['SUPERADMIN', 'superadmin', 'DEPARTMENT_ADMIN', 'admin'] %}
+                {% if user.role in ['SUPERADMIN', 'superadmin', 'DEPARTMENT_ADMIN', 'admin', 'VIEWER'] %}
+                <span class="nav-label nav-label-spaced">Отделы</span>
+                {% for dept in user_departments %}
+                <a class="nav-link {% if active == 'dept' and request.state.dept_id == dept.id %}active{% endif %}" href="/dept/{{ dept.id }}/"><span class="ico">◈</span>{{ dept.name }}</a>
+                {% else %}
+                <a class="nav-link muted" href="/departments/"><span class="ico">◈</span>Отделы не созданы</a>
+                {% endfor %}
+                {% if user.role in ['SUPERADMIN', 'superadmin'] %}
+                <a class="nav-link {% if active == 'departments' %}active{% endif %}" href="/departments/"><span class="ico">⊕</span>Управление отделами</a>
+                {% endif %}
                 <span class="nav-label nav-label-spaced">Доступ</span>
                 <a class="nav-link {% if active == 'admins' %}active{% endif %}" href="/admin/admins/"><span class="ico">♙</span>Администраторы</a>
                 {% endif %}
@@ -75,34 +71,4 @@
     {% endif %}
 </body>
 {% block extra_js %}{% endblock %}
-<script nonce="{{ request.state.script_nonce|default('') }}">
-document.addEventListener('click', function (event) {
-    var open = event.target.closest('[data-open-modal]');
-    var close = event.target.closest('[data-close-modal]');
-    if (open) document.getElementById(open.dataset.openModal).classList.add('active');
-    if (close) document.getElementById(close.dataset.closeModal).classList.remove('active');
-});
-document.addEventListener('change', function (event) {
-    if (event.target.matches('[data-filter-table]') && typeof window.filterTable === 'function') window.filterTable();
-    if (event.target.matches('[data-toggle-answer]') && typeof window.toggleAnswer === 'function') window.toggleAnswer();
-});
-document.addEventListener('submit', function (event) {
-    var message = event.target.dataset.confirm;
-    if (message && !window.confirm(message)) event.preventDefault();
-});
-document.addEventListener('click', function (event) {
-    var toggle = event.target.closest('.mobile-nav-toggle');
-    var backdrop = event.target.closest('.mobile-menu-backdrop');
-    if (toggle) {
-        var sidebar = document.getElementById('sidebar');
-        var expanded = toggle.getAttribute('aria-expanded') === 'true';
-        sidebar.classList.toggle('is-open', !expanded);
-        toggle.setAttribute('aria-expanded', String(!expanded));
-    }
-    if (backdrop) {
-        document.getElementById('sidebar').classList.remove('is-open');
-        document.querySelector('.mobile-nav-toggle').setAttribute('aria-expanded', 'false');
-    }
-});
-</script>
 </html>

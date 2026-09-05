@@ -21,9 +21,11 @@ from core.ticket_service import (
     StatusTransitionError,
     assign_ticket_department,
     change_ticket_status,
+    get_ticket_messages,
     reply_to_ticket,
 )
-from web.dependencies import get_admin_scope, require_auth, require_superadmin, require_writer
+from web.constants import STATUS_CHOICES
+from web.dependencies import get_admin_scope, get_departments_for_user, require_auth, require_superadmin, require_writer
 from web.routes.auth import require_crud_rate_limit
 from web.security.csrf import get_csrf_token
 from web.templating import templates
@@ -31,14 +33,6 @@ from web.templating import templates
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Человекочитаемые названия статусов для формы смены статуса
-STATUS_CHOICES = [
-    (TicketStatus.IN_PROGRESS.value, "В обработке"),
-    (TicketStatus.TRANSFERRED_ADMIN.value, "Передать в администрацию СГ"),
-    (TicketStatus.TRANSFERRED_HOUSEKEEPING.value, "Передать в Хозчасть"),
-    (TicketStatus.COMPLETED.value, "Выполнено"),
-]
 
 
 @router.get("/")
@@ -92,10 +86,7 @@ async def tickets_page(
             stmt = stmt.where(*filters)
             tickets = (await session.scalars(stmt)).all()
 
-            departments_stmt = select(Department)
-            if not is_super:
-                departments_stmt = departments_stmt.where(Department.id == dept_id)
-            departments = (await session.scalars(departments_stmt)).all()
+            departments = await get_departments_for_user(session, user)
     except Exception as e:
         db_error = True
         logger.error("Не удалось загрузить заявки: %s", e)
@@ -152,8 +143,6 @@ async def _get_ticket(ticket_id: int) -> Ticket | None:
 async def get_ticket(ticket_id: int, user: dict = Depends(require_auth)):
     """Данные заявки для модального окна (JSON) с проверкой прав + история."""
     ticket = await _load_ticket_for_user(ticket_id, user)
-
-    from core.ticket_service import get_ticket_messages
 
     try:
         messages = await get_ticket_messages(ticket_id)

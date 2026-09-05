@@ -39,7 +39,7 @@
     <div class="faq-list" id="faq-accordion">
         {% for node in faq_nodes %}
         <div class="faq-item" data-dept="{{ node.department.id }}" data-node-id="{{ node.id }}">
-            <div class="faq-question" onclick="toggleFaqItem(this)">
+            <div class="faq-question">
                 <span>{{ node.question[:80] }}{% if node.question|length > 80 %}...{% endif %}</span>
                 {% if node.is_final %}
                 <span class="badge badge-completed">Ответ</span>
@@ -160,56 +160,5 @@
         </form>
     </div>
 </div>
-{% endblock %}
 
-{% block extra_js %}
-<script nonce="{{ request.state.script_nonce|default('') }}">
-function openModal() {
-    document.getElementById('modal').classList.add('active');
-}
-
-function closeModal() {
-    document.getElementById('modal').classList.remove('active');
-}
-
-function toggleAnswer() {
-    const checkbox = document.getElementById('is_final');
-    const answerGroup = document.getElementById('answer-group');
-    const answerTextarea = document.getElementById('final_answer');
-    
-    if (checkbox.checked) {
-        answerGroup.style.display = 'block';
-        answerTextarea.required = true;
-    } else {
-        answerGroup.style.display = 'none';
-        answerTextarea.required = false;
-    }
-}
-
-document.getElementById('modal').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
-});
-
-function toggleFaqItem(el) {
-    const item = el.closest('.faq-item');
-    if (item) item.classList.toggle('open');
-}
-
-function filterTable() {
-    const deptFilter = document.getElementById('faq-dept-filter').value;
-    const rows = document.querySelectorAll('#faq-accordion .faq-item, .table-container tbody tr');
-    
-    // Фильтр аккордеона
-    document.querySelectorAll('#faq-accordion .faq-item').forEach(row => {
-        const dept = row.dataset.dept || '';
-        row.style.display = (!deptFilter || dept === deptFilter) ? '' : 'none';
-    });
-    
-    // Фильтр таблицы
-    document.querySelectorAll('.table-container tbody tr').forEach(row => {
-        const dept = row.dataset.dept || '';
-        row.style.display = (!deptFilter || dept === deptFilter) ? '' : 'none';
-    });
-}
-</script>
 {% endblock %}

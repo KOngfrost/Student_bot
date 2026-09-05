@@ -1,84 +1,74 @@
-﻿"""
+"""
 Маршруты управления администраторами.
 
 Безопасность:
 - CSRF защищён middleware CSRFMiddleware в main.py
-- require_admin проверяет сессию + роль (суперадмин/админ)
-- IDOR: админ видит только своих подчинённых (суперадмин видит всех)
-- Добавление суперадминов: только текущий суперадмин может назначать новых
+- require_auth проверяет сессию + роль (суперадмин/админ/наблюдатель)
+- IDOR: админ видит только администраторов своего отдела (суперадмин — всех)
+- Назначение суперадминов: только действующий суперадмин
 """
+
+import logging
+import secrets
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
-import logging
-import secrets
 
 from core.database import async_session_maker
-from core.models import User, Admin, Department, UserRole, WebRole, WebUser
-from web.dependencies import is_superadmin, require_auth as require_authenticated
-from web.dependencies import require_superadmin as require_superadmin_dependency
+from core.models import Admin, Department, User, UserRole, WebRole, WebUser
+from web.dependencies import get_admin_scope, is_superadmin, require_auth, require_superadmin
 from web.routes.auth import require_crud_rate_limit
-from web.templating import templates
 from web.security.csrf import get_csrf_token
 from web.security.middleware import sanitize_html
 from web.security.passwords import hash_password
+from web.templating import templates
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-async def require_admin(request: Request) -> dict:
-    """Депенденция для проверки актуальной авторизации админа."""
-    return await require_authenticated(request)
-
-
-async def require_superadmin(request: Request) -> dict:
-    return await require_superadmin_dependency(request)
-
-
 @router.get("/")
-async def admins_page(request: Request, user=Depends(require_admin)):
+async def admins_page(request: Request, user=Depends(require_auth)):
     """Страница управления администраторами.
 
     IDOR-защита:
-    - Суперадмин видит всех админов.
-    - Обычный админ видит только тех, кто привязан к его отделу (или не привязан к отделу).
+    - Суперадмин видит всех админов и всех веб-пользователей.
+    - Обычный админ — только тех, кто привязан к его отделу.
     """
     admins = []
+    web_users = []
     departments = []
     db_error = False
 
     try:
         async with async_session_maker() as session:
-            departments_stmt = select(Department)
-            if not is_superadmin(user):
-                departments_stmt = departments_stmt.where(Department.id == user.get("department_id"))
-            depts_result = await session.execute(departments_stmt)
-            departments = depts_result.scalars().all()
+            is_super, dept_id = await get_admin_scope(session, user)
 
-            if is_superadmin(user):
-                # Суперадмин видит всех
-                admins_result = await session.execute(
-                    select(Admin)
-                    .options(selectinload(Admin.user), selectinload(Admin.department))
-                    .order_by(Admin.id)
-                )
-                admins = admins_result.scalars().all()
-            else:
-                # Обычный админ видит только:
-                # 1. Админов своего отдела
-                # 2. Админов без привязки к отделу
-                dept_id = user.get("department_id")
-                admins_result = await session.execute(
-                    select(Admin)
-                    .options(selectinload(Admin.user), selectinload(Admin.department))
-                    .where(Admin.department_id == dept_id)
-                    .order_by(Admin.id)
-                )
-                admins = admins_result.scalars().all()
+            dept_stmt = select(Department).order_by(Department.name)
+            if not is_super:
+                dept_stmt = dept_stmt.where(Department.id == dept_id)
+            departments = list((await session.execute(dept_stmt)).scalars().all())
+
+            admins_stmt = (
+                select(Admin)
+                .options(selectinload(Admin.user), selectinload(Admin.department))
+                .order_by(Admin.id)
+            )
+            if not is_super:
+                admins_stmt = admins_stmt.where(Admin.department_id == dept_id)
+            admins = list((await session.execute(admins_stmt)).scalars().all())
+
+            web_users_stmt = (
+                select(WebUser)
+                .options(selectinload(WebUser.department))
+                .order_by(WebUser.id)
+            )
+            if not is_super:
+                web_users_stmt = web_users_stmt.where(WebUser.department_id == dept_id)
+            web_users = list((await session.execute(web_users_stmt)).scalars().all())
     except Exception as e:
         db_error = True
         logger.error("Не удалось загрузить администраторов: %s", e)
@@ -89,6 +79,7 @@ async def admins_page(request: Request, user=Depends(require_admin)):
             "request": request,
             "user": user,
             "admins": admins,
+            "web_users": web_users,
             "departments": departments,
             "db_error": db_error,
             "active": "admins",
@@ -96,12 +87,13 @@ async def admins_page(request: Request, user=Depends(require_admin)):
             "error": request.session.pop("error", None),
             "csrf_token": get_csrf_token(request),
             "created_credentials": request.session.pop("created_credentials", None),
-        }
+        },
     )
 
 
+
 @router.post("/")
-async def add_admin(request: Request, user=Depends(require_admin)):
+async def add_admin(request: Request, user=Depends(require_auth)):
     """Добавление нового администратора.
 
     Безопасность:
@@ -124,18 +116,19 @@ async def add_admin(request: Request, user=Depends(require_admin)):
     username = sanitize_html(str(form.get("username", "")).strip())
     password = str(form.get("password", ""))
 
-    # Проверка прав: только суперадмин может назначать роль superadmin
+    # Проверка прав: только суперадмин может назначать роль superadmin/viewer
     try:
         async with async_session_maker() as session:
-            if role not in ("admin", "superadmin"):
+            if role not in ("admin", "superadmin", "viewer"):
                 request.session["error"] = "Неизвестная роль администратора"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
-            if role == "superadmin" and not is_superadmin(user):
-                request.session["error"] = "Только суперадмин может назначать суперадминов"
+            if role in ("superadmin", "viewer") and not is_superadmin(user):
+                request.session["error"] = "Только суперадмин может назначать эту роль"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
             selected_department_id = int(department_id) if department_id else None
             if not is_superadmin(user):
+                # Обычный админ назначает админов только в свой отдел
                 selected_department_id = user.get("department_id")
                 if selected_department_id is None:
                     request.session["error"] = "У вашего аккаунта не указан отдел"
@@ -152,36 +145,44 @@ async def add_admin(request: Request, user=Depends(require_admin)):
                 request.session["error"] = "Такой логин уже занят"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
-            # Получаем или создаём пользователя
-            db_user = await session.scalar(select(User).where(User.vk_id == vk_id))
-            if not db_user:
-                db_user = User(vk_id=vk_id, full_name=full_name or None)
-                session.add(db_user)
-                await session.commit()
-                await session.refresh(db_user)
-            elif full_name:
-                db_user.full_name = full_name
-                await session.commit()
+            # Получаем или создаём пользователя VK (наблюдателю он не нужен:
+            # VIEWER существует только в веб-панели)
+            db_user = None
+            if role != "viewer":
+                db_user = await session.scalar(select(User).where(User.vk_id == vk_id))
+                if not db_user:
+                    db_user = User(vk_id=vk_id, full_name=full_name or None)
+                    session.add(db_user)
+                    await session.commit()
+                    await session.refresh(db_user)
+                elif full_name:
+                    db_user.full_name = full_name
+                    await session.commit()
 
-            # Проверяем, нет ли уже такого админа
-            existing = await session.scalar(
-                select(Admin).where(Admin.user_id == db_user.id)
-            )
-            if existing:
-                request.session["error"] = "Этот пользователь уже является админом"
-                return RedirectResponse(url="/admin/admins/", status_code=302)
+                # Проверяем, нет ли уже такого админа
+                existing = await session.scalar(
+                    select(Admin).where(Admin.user_id == db_user.id)
+                )
+                if existing:
+                    request.session["error"] = "Этот пользователь уже является админом"
+                    return RedirectResponse(url="/admin/admins/", status_code=302)
 
-            # Создаём запись админа
-            new_admin = Admin(
-                user_id=db_user.id,
-                department_id=selected_department_id,
-                role=UserRole(role),
-            )
-            session.add(new_admin)
+            web_role = {
+                "superadmin": WebRole.SUPERADMIN,
+                "viewer": WebRole.VIEWER,
+            }.get(role, WebRole.DEPARTMENT_ADMIN)
+
+            if role == "admin":
+                # Создаём запись админа (VK + веб-панель)
+                session.add(Admin(
+                    user_id=db_user.id,
+                    department_id=selected_department_id,
+                    role=UserRole(role),
+                ))
             session.add(WebUser(
                 username=username,
                 password_hash=hash_password(password),
-                role=WebRole.SUPERADMIN if role == "superadmin" else WebRole.DEPARTMENT_ADMIN,
+                role=web_role,
                 department_id=selected_department_id,
             ))
             await session.commit()
@@ -196,7 +197,7 @@ async def add_admin(request: Request, user=Depends(require_admin)):
 
 
 @router.post("/{admin_id}/delete")
-async def delete_admin(request: Request, admin_id: int, user=Depends(require_admin)):
+async def delete_admin(request: Request, admin_id: int, user=Depends(require_auth)):
     """Удаление администратора (POST с CSRF-токеном и подтверждением).
 
     Безопасность:

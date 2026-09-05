@@ -2,13 +2,11 @@
 Модуль безопасности: заголовки, rate limiting, валидация ввода.
 """
 
-import hashlib
 import logging
 import re
 import secrets
 import time
 from collections import defaultdict
-from typing import Optional
 
 from fastapi import Request, HTTPException, status
 from fastapi.responses import Response
@@ -120,9 +118,40 @@ def check_rate_limit(key: str, limiter: RateLimiter) -> bool:
     return limiter.is_allowed(key)
 
 
+# === XSS защита для данных в БД ===
+
+# Паттерны для обнаружения XSS (кортежи: pattern, replacement)
+_XSS_PATTERNS = [
+    (re.compile(r'<script[^>]*>', re.IGNORECASE), '[SCRIPT]'),
+    (re.compile(r'<script\s*/>', re.IGNORECASE), '[SCRIPT]'),
+    (re.compile(r'javascript\s*:', re.IGNORECASE), '[JAVASCRIPT]'),
+    (re.compile(r'on\w+\s*=', re.IGNORECASE), '[EVENT]'),
+    (re.compile(r'<iframe[^>]*>', re.IGNORECASE), '[IFRAME]'),
+    (re.compile(r'<object[^>]*>', re.IGNORECASE), '[OBJECT]'),
+    (re.compile(r'<embed[^>]*>', re.IGNORECASE), '[EMBED]'),
+    (re.compile(r'<form[^>]*>', re.IGNORECASE), '[FORM]'),
+    (re.compile(r'<img[^>]*\bon\w+\s*=', re.IGNORECASE), '[IMG_EVENT]'),
+    (re.compile(r'<svg[^>]*\bon\w+\s*=', re.IGNORECASE), '[SVG_EVENT]'),
+    (re.compile(r'<video[^>]*\bon\w+\s*=', re.IGNORECASE), '[VIDEO_EVENT]'),
+    (re.compile(r'<audio[^>]*\bon\w+\s*=', re.IGNORECASE), '[AUDIO_EVENT]'),
+]
+
+# Простые regex-паттерны для логирования в sanitize_html
+_XSS_LOG_PATTERNS = [
+    re.compile(r'<script[^>]*>', re.IGNORECASE),
+    re.compile(r'javascript:', re.IGNORECASE),
+    re.compile(r'on\w+\s*=', re.IGNORECASE),
+    re.compile(r'<iframe[^>]*>', re.IGNORECASE),
+    re.compile(r'<object[^>]*>', re.IGNORECASE),
+    re.compile(r'<embed[^>]*>', re.IGNORECASE),
+    re.compile(r'<form[^>]*>', re.IGNORECASE),
+    re.compile(r'<img[^>]*\bonerror', re.IGNORECASE),
+    re.compile(r'<svg[^>]*\bonload', re.IGNORECASE),
+]
+
+
 # === CSV Injection защита ===
 
-# Паттерны для обнаружения CSV-инъекций
 _CSV_INJECTION_PATTERNS = [
     re.compile(r'^[=+\-@]'),          # Начинается с =, +, -, @
     re.compile(r'\b(CMD\|)', re.IGNORECASE),
@@ -149,7 +178,7 @@ def sanitize_csv_field(value: str) -> str:
     for pattern in _CSV_INJECTION_PATTERNS:
         if pattern.search(value):
             # Экранируем, добавляя табуляцию в начало
-            return f"\t{value}"
+            return f"	{value}"
 
     return value
 
@@ -173,22 +202,6 @@ def escape_for_csv(value: str) -> str:
     return value
 
 
-# === XSS защита для данных в БД ===
-
-# Паттерны для обнаружения XSS
-_XSS_PATTERNS = [
-    re.compile(r'<script[^>]*>', re.IGNORECASE),
-    re.compile(r'javascript:', re.IGNORECASE),
-    re.compile(r'on\w+\s*=', re.IGNORECASE),  # onclick=, onerror= и т.д.
-    re.compile(r'<iframe[^>]*>', re.IGNORECASE),
-    re.compile(r'<object[^>]*>', re.IGNORECASE),
-    re.compile(r'<embed[^>]*>', re.IGNORECASE),
-    re.compile(r'<form[^>]*>', re.IGNORECASE),
-    re.compile(r'<img[^>]*\bonerror', re.IGNORECASE),
-    re.compile(r'<svg[^>]*\bonload', re.IGNORECASE),
-]
-
-
 def sanitize_html(value: str) -> str:
     """
     Базовая санитизация HTML для предотвращения XSS.
@@ -200,7 +213,7 @@ def sanitize_html(value: str) -> str:
     value = str(value)
 
     # Проверяем наличие XSS-паттернов
-    for pattern in _XSS_PATTERNS:
+    for pattern in _XSS_LOG_PATTERNS:
         if pattern.search(value):
             logger.warning("Обнаружен потенциальный XSS-паттерн: %s", value[:200])
 
@@ -239,42 +252,3 @@ class RequestSizeValidator:
     async def check_form_size(self, request: Request) -> None:
         """Проверить размер запроса, не потребляя body до обработчика."""
         self.check_content_length(request)
-
-
-# === Hash-утилиты ===
-
-def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
-    """
-    Хешировать пароль с использованием PBKDF2.
-    Возвращает (хеш, salt).
-    """
-    import os
-    import base64
-
-    if salt is None:
-        salt = base64.b64encode(os.urandom(16)).decode()
-
-    password_digest = hashlib.sha256(password.encode("utf-8")).digest()
-    hashed = hashlib.pbkdf2_hmac(
-        "sha256",
-        password_digest,
-        salt.encode("utf-8"),
-        100_000,
-    )
-    return base64.b64encode(hashed).decode(), salt
-
-
-def verify_password(password: str, hashed: str, salt: str) -> bool:
-    """Проверить пароль против захешированного значения."""
-    import base64
-    import secrets
-
-    password_digest = hashlib.sha256(password.encode("utf-8")).digest()
-    hashed_input = hashlib.pbkdf2_hmac(
-        "sha256",
-        password_digest,
-        salt.encode("utf-8"),
-        100_000,
-    )
-    input_hash = base64.b64encode(hashed_input).decode()
-    return secrets.compare_digest(input_hash, hashed)

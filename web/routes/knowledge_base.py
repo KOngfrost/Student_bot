@@ -1,4 +1,4 @@
-﻿"""
+"""
 Маршруты базы знаний.
 
 Безопасность:
@@ -7,17 +7,20 @@
 - Санитизация входных данных от XSS
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-import logging
 
 from core.database import async_session_maker
-from core.models import KnowledgeBase, Department
-from web.dependencies import get_admin_scope, require_auth, require_writer
-from web.templating import templates
+from core.models import KnowledgeBase
+from web.dependencies import get_admin_scope, get_departments_for_user, require_auth, require_writer
+from web.form_utils import parse_form_int
+from web.security.csrf import get_csrf_token
 from web.security.middleware import sanitize_html
+from web.templating import templates
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +30,6 @@ router = APIRouter()
 @router.get("/")
 async def knowledge_base_page(request: Request, user=Depends(require_auth)):
     """Страница базы знаний с IDOR-защитой."""
-    from web.security.csrf import get_csrf_token
-
     knowledge_base = []
     departments = []
     db_error = False
@@ -36,28 +37,19 @@ async def knowledge_base_page(request: Request, user=Depends(require_auth)):
     try:
         async with async_session_maker() as session:
             is_super, dept_id = await get_admin_scope(session, user)
-            depts_stmt = select(Department)
-            if not is_super:
-                depts_stmt = depts_stmt.where(Department.id == dept_id)
-            depts_result = await session.execute(depts_stmt)
-            departments = depts_result.scalars().all()
+            departments = await get_departments_for_user(session, user)
 
-            if is_super:
-                kb_result = await session.execute(
-                    select(KnowledgeBase)
-                    .options(selectinload(KnowledgeBase.department))
-                    .order_by(KnowledgeBase.id)
+            kb_stmt = (
+                select(KnowledgeBase)
+                .options(selectinload(KnowledgeBase.department))
+                .order_by(KnowledgeBase.id)
+            )
+            if not is_super:
+                kb_stmt = kb_stmt.where(
+                    (KnowledgeBase.department_id == dept_id)
+                    | (KnowledgeBase.department_id.is_(None))
                 )
-            else:
-                kb_result = await session.execute(
-                    select(KnowledgeBase)
-                    .options(selectinload(KnowledgeBase.department))
-                    .where(
-                        (KnowledgeBase.department_id == dept_id) | (KnowledgeBase.department_id.is_(None))
-                    )
-                    .order_by(KnowledgeBase.id)
-                )
-            knowledge_base = kb_result.scalars().all()
+            knowledge_base = (await session.execute(kb_stmt)).scalars().all()
     except Exception as e:
         db_error = True
         logger.error("Не удалось загрузить базу знаний: %s", e)
@@ -74,7 +66,7 @@ async def knowledge_base_page(request: Request, user=Depends(require_auth)):
             "success": request.session.pop("success", None),
             "error": request.session.pop("error", None),
             "csrf_token": get_csrf_token(request),
-        }
+        },
     )
 
 
@@ -88,30 +80,34 @@ async def add_knowledge_base(request: Request, user=Depends(require_writer)):
     - Санитизация входных данных от XSS
     """
     form = await request.form()
-    department_id = int(form.get("department_id", 0))
-    keywords = sanitize_html(form.get("keywords", ""))
-    answer = sanitize_html(form.get("answer", ""))
+    keywords = sanitize_html(str(form.get("keywords", "")))
+    answer = sanitize_html(str(form.get("answer", "")))
 
     try:
         async with async_session_maker() as session:
             is_super, dept_id = await get_admin_scope(session, user)
-            if not is_super and dept_id != department_id:
-                request.session["error"] = "Нет прав для работы с этим отделом"
-                return RedirectResponse(url="/knowledge/", status_code=302)
-            kb = KnowledgeBase(
+            department_id = parse_form_int(form, "department_id", default=dept_id)
+
+            if not is_super:
+                # Админ отдела жёстко привязан к своему отделу
+                department_id = dept_id
+            if department_id is None:
+                request.session["error"] = "Не выбран отдел"
+                return RedirectResponse(url="/knowledge/", status_code=303)
+
+            session.add(KnowledgeBase(
                 department_id=department_id,
                 keywords=keywords,
                 answer=answer,
-            )
-            session.add(kb)
+            ))
             await session.commit()
     except Exception:
         logger.exception("Не удалось добавить запись в базу знаний")
         request.session["error"] = "Не удалось сохранить запись. Попробуйте позже."
-        return RedirectResponse(url="/knowledge/", status_code=302)
+        return RedirectResponse(url="/knowledge/", status_code=303)
 
     request.session["success"] = "Запись добавлена в базу знаний"
-    return RedirectResponse(url="/knowledge/", status_code=302)
+    return RedirectResponse(url="/knowledge/", status_code=303)
 
 
 @router.post("/{kb_id}/delete")
@@ -122,21 +118,21 @@ async def delete_knowledge_base(request: Request, kb_id: int, user=Depends(requi
             kb = await session.get(KnowledgeBase, kb_id)
             if not kb:
                 request.session["error"] = "Запись не найдена"
-                return RedirectResponse(url="/knowledge/", status_code=302)
+                return RedirectResponse(url="/knowledge/", status_code=303)
 
-            # Проверяем права: админ видит только записи своего отдела
+            # IDOR: админ отдела может удалять только записи своего отдела
             is_super, dept_id = await get_admin_scope(session, user)
-
             if not is_super and kb.department_id != dept_id:
                 request.session["error"] = "Нет прав для удаления этой записи"
-                return RedirectResponse(url="/knowledge/", status_code=302)
+                return RedirectResponse(url="/knowledge/", status_code=303)
 
             await session.delete(kb)
             await session.commit()
     except Exception:
         logger.exception("Не удалось удалить запись базы знаний")
         request.session["error"] = "Не удалось удалить запись. Попробуйте позже."
-        return RedirectResponse(url="/knowledge/", status_code=302)
+        return RedirectResponse(url="/knowledge/", status_code=303)
 
     request.session["success"] = "Запись удалена"
-    return RedirectResponse(url="/knowledge/", status_code=302)
+    return RedirectResponse(url="/knowledge/", status_code=303)
+

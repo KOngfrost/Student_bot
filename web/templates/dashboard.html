@@ -96,32 +96,3 @@
     </p>
 </div>
 {% endblock %}
-
-{% block extra_js %}
-<script nonce="{{ request.state.script_nonce|default('') }}">
-// Плавный счётчик: числа в стат-карточках «набегают» от 0 до значения
-(function () {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    var counters = document.querySelectorAll('[data-counter]');
-    var duration = 900;
-
-    function animate(el) {
-        var target = parseInt(el.textContent, 10) || 0;
-        if (target === 0) return;
-        var start = null;
-        function step(ts) {
-            if (!start) start = ts;
-            var progress = Math.min((ts - start) / duration, 1);
-            var eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
-            el.textContent = Math.round(target * eased);
-            if (progress < 1) requestAnimationFrame(step);
-        }
-        requestAnimationFrame(step);
-    }
-
-    counters.forEach(function (el, i) {
-        setTimeout(function () { animate(el); }, 150 + i * 100);
-    });
-})();
-</script>
-{% endblock %}

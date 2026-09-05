@@ -98,6 +98,50 @@ async def validate_request_size(request: Request, call_next):
     return response
 
 
+# Middleware для загрузки department_name в контекст шаблонов
+@app.middleware("http")
+async def add_department_name(request: Request, call_next):
+    """Загружает department_name и список отделов пользователя из БД."""
+    # Пропускаем статические файлы, healthcheck, auth и API-запросы
+    if (
+        request.url.path.startswith("/static/")
+        or request.url.path == "/health"
+        or request.url.path.startswith("/auth/")
+        or "application/json" in request.headers.get("accept", "")
+    ):
+        return await call_next(request)
+
+    try:
+        user = request.session.get("user")
+        if user:
+            from web.dependencies import get_admin_scope, get_departments_for_user
+
+            async with async_session_maker() as session:
+                user_departments = await get_departments_for_user(session, user)
+                is_super, _dept_id = await get_admin_scope(session, user)
+
+                # Обычный админ видит ровно один отдел — показываем его название
+                department_name = (
+                    user_departments[0].name if not is_super and user_departments else None
+                )
+                # Активный фрейм отдела (для подсветки в навигации)
+                dept_id = None
+                if request.url.path.startswith("/dept/"):
+                    parts = request.url.path.strip("/").split("/")
+                    if len(parts) >= 2 and parts[1].isdigit():
+                        dept_id = int(parts[1])
+
+                request.state.department_name = department_name
+                request.state.user_departments = user_departments
+                request.state.dept_id = dept_id
+    except Exception:
+        # Если не удалось загрузить — продолжаем без department_name
+        pass
+
+    response = await call_next(request)
+    return response
+
+
 # Глобальный обработчик ошибок — без раскрытия деталей
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -135,7 +179,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Импорт роутеров
-from web.routes import auth, admin_panel, tickets, knowledge_base, faq, events, logs, dashboard  # noqa: E402
+from web.routes import auth, admin_panel, tickets, knowledge_base, faq, events, logs, dashboard, dept_frame, departments  # noqa: E402
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(admin_panel.router, prefix="/admin/admins", tags=["admin"])
@@ -145,6 +189,8 @@ app.include_router(faq.router, prefix="/faq", tags=["faq"])
 app.include_router(events.router, prefix="/events", tags=["events"])
 app.include_router(logs.router, prefix="/logs", tags=["logs"])
 app.include_router(dashboard.router, tags=["dashboard"])
+app.include_router(dept_frame.router, prefix="/dept", tags=["dept_frame"])
+app.include_router(departments.router, prefix="/departments", tags=["departments"])
 
 
 # Healthcheck для мониторинга и docker healthcheck

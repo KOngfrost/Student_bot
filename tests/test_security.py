@@ -27,9 +27,8 @@ from web.security.middleware import (
     escape_for_csv,
     sanitize_html,
     RequestSizeValidator,
-    hash_password,
-    verify_password,
 )
+from web.security.passwords import hash_password, verify_password
 
 # Импортируем приложение
 # NOTE: Мы тестируем security-модули напрямую, без запуска FastAPI-приложения,
@@ -238,35 +237,35 @@ class TestXSSSanitization:
 class TestPasswordHashing:
     """Тесты хеширования паролей."""
 
-    def test_hash_password_returns_tuple(self):
-        """Хеширование возвращает кортеж (hash, salt)."""
-        hashed, salt = hash_password("test_password")
+    def test_hash_password_returns_string(self):
+        """Хеширование возвращает строку формата $argon2id$... или pbkdf2_sha256$..."""
+        hashed = hash_password("test_password")
         assert isinstance(hashed, str)
-        assert isinstance(salt, str)
         assert len(hashed) > 0
-        assert len(salt) > 0
+        # Проверяем формат хеша
+        assert hashed.startswith("$argon2id$") or hashed.startswith("pbkdf2_sha256$")
 
-    def test_hash_password_different_salts(self):
-        """Разные вызовы дают разные хеши (из-за случайного salt)."""
-        hash1, _ = hash_password("same_password")
-        hash2, _ = hash_password("same_password")
+    def test_hash_password_different_hashes(self):
+        """Разные вызови дают разные хеши (из-за случайной соли)."""
+        hash1 = hash_password("same_password")
+        hash2 = hash_password("same_password")
         assert hash1 != hash2
 
     def test_verify_password_correct(self):
         """Проверка правильного пароля — True."""
-        hashed, salt = hash_password("correct_password")
-        assert verify_password("correct_password", hashed, salt) is True
+        hashed = hash_password("correct_password")
+        assert verify_password("correct_password", hashed) is True
 
     def test_verify_password_incorrect(self):
         """Проверка неправильного пароля — False."""
-        hashed, salt = hash_password("correct_password")
-        assert verify_password("wrong_password", hashed, salt) is False
+        hashed = hash_password("correct_password")
+        assert verify_password("wrong_password", hashed) is False
 
     def test_verify_password_timing_safe(self):
         """Проверка пароля не использует нестабильный wall-clock порог."""
-        hashed, salt = hash_password("test")
-        assert verify_password("a", hashed, salt) is False
-        assert verify_password("a" * 1000, hashed, salt) is False
+        hashed = hash_password("test")
+        assert verify_password("a", hashed) is False
+        assert verify_password("a" * 1000, hashed) is False
 
 
 # ==========================================

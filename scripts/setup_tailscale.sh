@@ -66,7 +66,9 @@ if [ -z "$MAGIC_NAME" ]; then
 fi
 
 echo "Включаем HTTPS для панели (tailscale serve)..."
-"${COMPOSE[@]}" exec -T tailscale tailscale serve --bg http://localhost:8000
+# Сначала удаляем старую настройку serve (если была), затем настраиваем корректно
+"${COMPOSE[@]}" exec -T tailscale tailscale serve --delete http://localhost:8000 2>/dev/null || true
+"${COMPOSE[@]}" exec -T tailscale tailscale serve http://localhost:8000
 
 echo "Перезапускаем веб-панель для применения SESSION_HTTPS_ONLY=true..."
 "${COMPOSE[@]}" up -d --force-recreate web-admin

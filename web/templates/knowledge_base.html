@@ -105,29 +105,3 @@
     </div>
 </div>
 {% endblock %}
-
-{% block extra_js %}
-<script nonce="{{ request.state.script_nonce|default('') }}">
-function openModal() {
-    document.getElementById('modal').classList.add('active');
-}
-
-function closeModal() {
-    document.getElementById('modal').classList.remove('active');
-}
-
-document.getElementById('modal').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
-});
-
-function filterTable() {
-    const deptFilter = document.getElementById('kb-dept-filter').value;
-    const rows = document.querySelectorAll('tbody tr');
-    
-    rows.forEach(row => {
-        const dept = row.dataset.dept || '';
-        row.style.display = (!deptFilter || dept === deptFilter) ? '' : 'none';
-    });
-}
-</script>
-{% endblock %}
