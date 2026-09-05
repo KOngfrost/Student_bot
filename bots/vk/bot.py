@@ -15,6 +15,26 @@ from vkbottle import BaseStateGroup, Bot
 from vkbottle.bot import Message
 from vkbottle.dispatch.rules.base import RegexRule
 from vkbottle.exception_factory.base_exceptions import VKAPIError
+from core.commands import (
+    ADMIN_REPLY_PATTERN,
+    ADMIN_STATUS_PATTERN,
+    COMMANDS_ADMIN,
+    COMMANDS_ADMIN_TICKETS,
+    COMMANDS_ANONYMOUS,
+    COMMANDS_ANONYMOUS_STAY,
+    COMMANDS_CORPORATE,
+    COMMANDS_CULTURE,
+    COMMANDS_HOUSING,
+    COMMANDS_INFORMATION,
+    COMMANDS_MY_TICKETS,
+    COMMANDS_QUESTION,
+    COMMANDS_REGULAR_MENU,
+    COMMANDS_REPORT,
+    COMMAND_REPORT_BY_DATE,
+    COMMAND_REPORT_BY_PERIOD,
+    COMMAND_TICKET_DETAILS,
+    COMMANDS_START,
+)
 from core.config import settings
 from core.bot_core import BotCore
 from core.database import async_session_maker
@@ -76,9 +96,7 @@ async def _main_keyboard_for(vk_id: int) -> str:
     return build_main_keyboard(await BotCore.is_admin(user))
 
 
-@vk_bot.on.private_message(
-    text=["/start", "start", "Start", "START", "старт", "меню", "Меню", "Начать"]
-)
+@vk_bot.on.private_message(text=COMMANDS_START)
 async def start_handler(message: Message):
     touch_heartbeat()
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
@@ -87,7 +105,7 @@ async def start_handler(message: Message):
     await message.answer(_main_reply_text(), keyboard=keyboard)
 
 
-@vk_bot.on.private_message(text=["Мои заявки", "мои заявки"])
+@vk_bot.on.private_message(text=COMMANDS_MY_TICKETS)
 async def my_tickets_handler(message: Message):
     """Список заявок пользователя из базы: номер, отдел, тема, дата, статус, ответ."""
     touch_heartbeat()
@@ -108,7 +126,7 @@ async def my_tickets_handler(message: Message):
     )
 
 
-@vk_bot.on.private_message(text=["Подробнее"])
+@vk_bot.on.private_message(text=COMMAND_TICKET_DETAILS)
 async def ticket_details_handler(message: Message):
     """История заявки: «Подробнее #N» — номер, отдел, тема, статус, вся переписка."""
     touch_heartbeat()
@@ -161,37 +179,37 @@ async def _start_ticket_flow(
     )
 
 
-@vk_bot.on.private_message(text=["Жилбыт", "жилбыт"])
+@vk_bot.on.private_message(text=COMMANDS_HOUSING)
 async def housing_section(message: Message):
     """Раздел «Жилбыт»: бытовые условия и проблемы в общежитии."""
     await _start_ticket_flow(message, "Жилбыт", "Жилбыт")
 
 
-@vk_bot.on.private_message(text=["Культмасс", "культмасс"])
+@vk_bot.on.private_message(text=COMMANDS_CULTURE)
 async def culture_section(message: Message):
     """Раздел «Культмасс»: мероприятия, анонсы, запись на события."""
     await _start_ticket_flow(message, "Культмасс", "Культмасс")
 
 
-@vk_bot.on.private_message(text=["Информ", "информ"])
+@vk_bot.on.private_message(text=COMMANDS_INFORMATION)
 async def information_section(message: Message):
     """Раздел «Информ»: справочная информация и частые вопросы."""
     await _start_ticket_flow(message, "Информ", "Информ")
 
 
-@vk_bot.on.private_message(text=["Корпоративный", "корпоративный"])
+@vk_bot.on.private_message(text=COMMANDS_CORPORATE)
 async def corporate_section(message: Message):
     """Раздел «Корпоративный»: вопросы мероприятий и жизни университета."""
     await _start_ticket_flow(message, "Корпоративный", "Корпоративный")
 
 
-@vk_bot.on.private_message(text=["Задать вопрос", "задать вопрос"])
+@vk_bot.on.private_message(text=COMMANDS_QUESTION)
 async def question_section_start(message: Message):
     """Общий вопрос без привязки к конкретному отделу."""
     await _start_ticket_flow(message, "Вопрос")
 
 
-@vk_bot.on.private_message(text=["Анонимное обращение", "анонимное обращение"])
+@vk_bot.on.private_message(text=COMMANDS_ANONYMOUS)
 async def anonymous_section_start(message: Message):
     """Начало анонимного обращения — бот запрашивает текст."""
     touch_heartbeat()
@@ -244,7 +262,7 @@ async def ticket_description_handler(message: Message):
 
 @vk_bot.on.private_message(
     state=TicketStates.WAITING_IDENTITY_CHOICE,
-    text=["Остаться анонимным", "Остаться не анонимным"],
+    text=COMMANDS_ANONYMOUS_STAY,
 )
 async def ticket_identity_choice_handler(message: Message):
     """Создать обращение после выбора канала обратной связи."""
@@ -291,7 +309,7 @@ async def ticket_identity_choice_handler(message: Message):
 
 
 @vk_bot.on.private_message(
-    text=["Админ", "админ"]
+    text=COMMANDS_ADMIN
 )
 async def admin_panel(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
@@ -313,7 +331,7 @@ async def admin_panel(message: Message):
     )
 
 
-@vk_bot.on.private_message(text=["Обычное меню", "обычное меню"])
+@vk_bot.on.private_message(text=COMMANDS_REGULAR_MENU)
 async def regular_menu_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     await message.answer(
@@ -322,7 +340,7 @@ async def regular_menu_handler(message: Message):
     )
 
 
-@vk_bot.on.private_message(text=["Заявки администратора", "заявки администратора"])
+@vk_bot.on.private_message(text=COMMANDS_ADMIN_TICKETS)
 async def admin_tickets_handler(message: Message):
     """Показать оператору заявки, доступные его отделу."""
     async with async_session_maker() as session:
@@ -389,9 +407,9 @@ async def _operator_can_access(vk_id: int, ticket_id: int) -> bool:
         return ticket is not None and ticket.department_id == dept_id
 
 
-@vk_bot.on.private_message(RegexRule(r"^Ответ #\d+: .+"))
+@vk_bot.on.private_message(RegexRule(ADMIN_REPLY_PATTERN))
 async def admin_reply_handler(message: Message):
-    match = re.match(r"^Ответ #(\d+):\s*(.+)$", message.text or "", re.DOTALL)
+    match = re.match(ADMIN_REPLY_PATTERN, message.text or "", re.DOTALL)
     if not match or not await _operator_can_access(message.from_id, int(match.group(1))):
         await message.answer(
             "Заявка не найдена или недоступна.",
@@ -424,9 +442,9 @@ def _parse_status(value: str) -> TicketStatus:
     raise ValueError(f"Неизвестный статус: {value!r}")
 
 
-@vk_bot.on.private_message(RegexRule(r"^Статус #\d+: .+"))
+@vk_bot.on.private_message(RegexRule(ADMIN_STATUS_PATTERN))
 async def admin_status_handler(message: Message):
-    match = re.match(r"^Статус #(\d+):\s*(.+)$", message.text or "", re.DOTALL)
+    match = re.match(ADMIN_STATUS_PATTERN, message.text or "", re.DOTALL)
     if not match or not await _operator_can_access(message.from_id, int(match.group(1))):
         await message.answer(
             "Заявка не найдена или недоступна.",
@@ -454,7 +472,7 @@ async def admin_status_handler(message: Message):
     )
 
 
-@vk_bot.on.private_message(text=["Сформировать отчет", "Сформировать отчет"])
+@vk_bot.on.private_message(text=COMMANDS_REPORT)
 async def report_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
@@ -490,7 +508,7 @@ async def report_handler(message: Message):
     )
 
 
-@vk_bot.on.private_message(text="Отчет по дате")
+@vk_bot.on.private_message(text=COMMAND_REPORT_BY_DATE)
 async def report_by_date_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):
@@ -537,7 +555,7 @@ async def report_by_date_input(message: Message):
         await vk_bot.state_dispenser.delete(message.from_id)
 
 
-@vk_bot.on.private_message(text="Отчет за период")
+@vk_bot.on.private_message(text=COMMAND_REPORT_BY_PERIOD)
 async def report_by_period_handler(message: Message):
     user = await BotCore.get_or_create_user(vk_id=message.from_id)
     if not await BotCore.is_admin(user):

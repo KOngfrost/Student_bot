@@ -5,12 +5,16 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 import enum
-import re
 
-from web.security.middleware import _XSS_PATTERNS
-
+import bleach
 
 Base = declarative_base()
+
+# Разрешённые теги для bleach: пустой список = удалить все теги.
+# Это обеспечивает максимальную безопасность — пользовательский ввод
+# хранится как чистый текст без HTML-разметки.
+_SANITIZE_ALLOWED_TAGS: list[str] = []
+_SANITIZE_ALLOWED_ATTRIBUTES: dict[str, list[str] | bool] = {}
 
 
 # ==========================================
@@ -23,18 +27,25 @@ Base = declarative_base()
 
 def sanitize_xss(value: str) -> str:
     """Автоматическая санитизация XSS-паттернов в строке.
-    
-    Заменяет опасные паттерны на безопасные заглушки.
-    Используется как дополнительный слой защиты поверх экранирования
-    Jinja2-шаблонов.
+
+    Использует bleach для удаления всех HTML-тегов и атрибутов.
+    В отличие от regex-подхода, bleach корректно обрабатывает вложенные
+    теги, сущности и edge-кейсы.
     """
     if not value or not isinstance(value, str):
         return value
-    
-    for pattern, replacement in _XSS_PATTERNS:
-        value = pattern.sub(replacement, value)
-    
-    return value
+
+    try:
+        return bleach.clean(
+            value,
+            tags=_SANITIZE_ALLOWED_TAGS,
+            attributes=_SANITIZE_ALLOWED_ATTRIBUTES,
+            strip=True,
+        )
+    except Exception:
+        # Fallback: strip tags вручную
+        import re
+        return re.sub(r'<[^>]+>', '', value)
 
 
 @event.listens_for(Text, "before_insert", propagate=True)

@@ -3,11 +3,11 @@
 """
 
 import logging
-import re
 import secrets
 import time
 from collections import defaultdict
 
+import bleach
 from fastapi import Request, HTTPException, status
 from fastapi.responses import Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -118,49 +118,65 @@ def check_rate_limit(key: str, limiter: RateLimiter) -> bool:
     return limiter.is_allowed(key)
 
 
-# === XSS защита для данных в БД ===
+# === XSS-санитизация через bleach ===
 
-# Паттерны для обнаружения XSS (кортежи: pattern, replacement)
-_XSS_PATTERNS = [
-    (re.compile(r'<script[^>]*>', re.IGNORECASE), '[SCRIPT]'),
-    (re.compile(r'<script\s*/>', re.IGNORECASE), '[SCRIPT]'),
-    (re.compile(r'javascript\s*:', re.IGNORECASE), '[JAVASCRIPT]'),
-    (re.compile(r'on\w+\s*=', re.IGNORECASE), '[EVENT]'),
-    (re.compile(r'<iframe[^>]*>', re.IGNORECASE), '[IFRAME]'),
-    (re.compile(r'<object[^>]*>', re.IGNORECASE), '[OBJECT]'),
-    (re.compile(r'<embed[^>]*>', re.IGNORECASE), '[EMBED]'),
-    (re.compile(r'<form[^>]*>', re.IGNORECASE), '[FORM]'),
-    (re.compile(r'<img[^>]*\bon\w+\s*=', re.IGNORECASE), '[IMG_EVENT]'),
-    (re.compile(r'<svg[^>]*\bon\w+\s*=', re.IGNORECASE), '[SVG_EVENT]'),
-    (re.compile(r'<video[^>]*\bon\w+\s*=', re.IGNORECASE), '[VIDEO_EVENT]'),
-    (re.compile(r'<audio[^>]*\bon\w+\s*=', re.IGNORECASE), '[AUDIO_EVENT]'),
-]
+# Разрешённые HTML-теги для очистки пользовательского ввода.
+# Пустой список — strip all tags (максимальная безопасность).
+ALLOWED_TAGS: list[str] = []
 
-# Простые regex-паттерны для логирования в sanitize_html
-_XSS_LOG_PATTERNS = [
-    re.compile(r'<script[^>]*>', re.IGNORECASE),
-    re.compile(r'javascript:', re.IGNORECASE),
-    re.compile(r'on\w+\s*=', re.IGNORECASE),
-    re.compile(r'<iframe[^>]*>', re.IGNORECASE),
-    re.compile(r'<object[^>]*>', re.IGNORECASE),
-    re.compile(r'<embed[^>]*>', re.IGNORECASE),
-    re.compile(r'<form[^>]*>', re.IGNORECASE),
-    re.compile(r'<img[^>]*\bonerror', re.IGNORECASE),
-    re.compile(r'<svg[^>]*\bonload', re.IGNORECASE),
-]
+# Разрешённые атрибуты (пусто — удаляем все атрибуты, включая on*).
+ALLOWED_ATTRIBUTES: dict[str, list[str] | bool] = {}
+
+
+def sanitize_html(value: str) -> str:
+    """Очистить HTML-ввод от XSS с помощью bleach.
+
+    Удаляет все HTML-теги и атрибуты — возвращает чистый текст.
+    В отличие от regex-подхода, bleach корректно обрабатывает вложенные
+    теги, сущности и edge-кейсы, которые regex мог пропустить.
+    """
+    if not value or not isinstance(value, str):
+        return value or ""
+
+    try:
+        cleaned = bleach.clean(
+            value,
+            tags=ALLOWED_TAGS,
+            attributes=ALLOWED_ATTRIBUTES,
+            strip=True,
+        )
+        # Логирование попыток XSS
+        if cleaned != value:
+            logger.warning("XSS-паттерн очищен bleach: %s", value[:200])
+        return cleaned
+    except Exception:
+        # На случай проблем с bleach — безопасный fallback: HTML-экранирование
+        logger.exception("Ошибка в bleach.clean, fallback на HTML-экранирование")
+        return _html_escape(value)
+
+
+def _html_escape(value: str) -> str:
+    """Базовое HTML-экранирование (fallback, если bleach недоступен)."""
+    value = str(value)
+    value = value.replace("&", "&amp;")
+    value = value.replace("<", "&lt;")
+    value = value.replace(">", "&gt;")
+    value = value.replace('"', "&quot;")
+    value = value.replace("'", "&#x27;")
+    return value
 
 
 # === CSV Injection защита ===
 
 _CSV_INJECTION_PATTERNS = [
-    re.compile(r'^[=+\-@]'),          # Начинается с =, +, -, @
-    re.compile(r'\b(CMD\|)', re.IGNORECASE),
-    re.compile(r'\b(SHELL\|)', re.IGNORECASE),
-    re.compile(r'\b(IMPORT\|)', re.IGNORECASE),
-    re.compile(r'\b(PICKLIST\|)', re.IGNORECASE),
-    re.compile(r'\b(DATATABLE\|)', re.IGNORECASE),
-    re.compile(r'!A\d'),              # Ссылки на ячейки
-    re.compile(r'`.*`'),              # Backtick-инъекции
+    r'^[=+\-@]',          # Начинается с =, +, -, @
+    r'\b(CMD\|)',         # CMD|
+    r'\b(SHELL\|)',       # SHELL|
+    r'\b(IMPORT\|)',      # IMPORT|
+    r'\b(PICKLIST\|)',    # PICKLIST|
+    r'\b(DATATABLE\|)',   # DATATABLE|
+    r'!A\d',              # Ссылки на ячейки
+    r'`.*`',              # Backtick-инъекции
 ]
 
 
@@ -172,11 +188,12 @@ def sanitize_csv_field(value: str) -> str:
     if not value:
         return ""
 
+    import re
     value = str(value)
 
     # Проверяем паттерны инъекций
-    for pattern in _CSV_INJECTION_PATTERNS:
-        if pattern.search(value):
+    for pattern_str in _CSV_INJECTION_PATTERNS:
+        if re.search(pattern_str, value):
             # Экранируем, добавляя табуляцию в начало
             return f"	{value}"
 
@@ -198,31 +215,6 @@ def escape_for_csv(value: str) -> str:
     # Проверяем, нужно ли оборачивать в кавычки
     if ',' in value or '"' in value or '\n' in value or '\r' in value:
         value = f'"{value}"'
-
-    return value
-
-
-def sanitize_html(value: str) -> str:
-    """
-    Базовая санитизация HTML для предотвращения XSS.
-    Используется для данных, которые НЕ должны содержать HTML-теги.
-    """
-    if not value:
-        return ""
-
-    value = str(value)
-
-    # Проверяем наличие XSS-паттернов
-    for pattern in _XSS_LOG_PATTERNS:
-        if pattern.search(value):
-            logger.warning("Обнаружен потенциальный XSS-паттерн: %s", value[:200])
-
-    # HTML-экранирование
-    value = value.replace("&", "&amp;")
-    value = value.replace("<", "&lt;")
-    value = value.replace(">", "&gt;")
-    value = value.replace('"', "&quot;")
-    value = value.replace("'", "&#x27;")
 
     return value
 

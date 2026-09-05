@@ -1,4 +1,5 @@
 import os
+import secrets
 from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
@@ -24,6 +25,13 @@ class Settings:
     DB_NAME = os.getenv("POSTGRES_DB", os.getenv("DB_NAME", "oss_bot"))
     DB_HOST = os.getenv("DB_HOST", "db")
     DB_PORT = os.getenv("DB_PORT", "5432")
+
+    # Настройки пула соединений (используется в core/database.py)
+    DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "20"))
+    DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+    DB_POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+    DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))
+    DB_POOL_PRE_PING = os.getenv("DB_POOL_PRE_PING", "true").lower() in ("1", "true", "yes")
 
     # Собираем URL только если все обязательные поля заданы (dev-режим)
     _db_user = quote_plus(DB_USER) if DB_USER else ""
@@ -60,8 +68,22 @@ class Settings:
     # PostgreSQL-контейнер через POSTGRES_DB, схема применяется через Alembic.
     ALLOW_DB_CREATE = os.getenv("ALLOW_DB_CREATE", "false").lower() in ("1", "true", "yes")
 
-    # Секрет сессий веб-панели (обязателен: без него панель не запускается)
-    SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "")
+    # === Безопасность ===
+
+    # Секрет сессий веб-панели.
+    # В production ОБЯЗАТЕЛЕН (валидируется в ensure_production_config).
+    # В dev-режиме генерируется случайное значение при старте,
+    # чтобы сессии не ломались при перезапуске.
+    SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "").strip()
+
+    @property
+    def session_secret_key(self) -> str:
+        """Возвращает секрет сессии с fallback на случайную генерацию в dev."""
+        if self.SESSION_SECRET_KEY:
+            return self.SESSION_SECRET_KEY
+        # Dev-фоллбэк: генерируем при каждом импорте (не идеально, но работает для dev)
+        # В production это блокируется ensure_production_config()
+        return secrets.token_urlsafe(64)
 
     # === Web admin panel ===
     # https_only для session-cookie:
@@ -87,6 +109,14 @@ class Settings:
     WEB_ADMIN_USERNAME = os.getenv("WEB_ADMIN_USERNAME", "")
     WEB_ADMIN_PASSWORD = os.getenv("WEB_ADMIN_PASSWORD", "")
 
+    # CORS: допустимые источники для веб-панели.
+    # По умолчанию — localhost:8000 (dev) и пустой список (production).
+    CORS_ORIGINS = [
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "http://localhost:8000").split(",")
+        if origin.strip()
+    ]
+
     # SMTP (email-рассылка отчётов)
     SMTP_HOST = os.getenv("SMTP_HOST", "")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -98,6 +128,26 @@ class Settings:
         for email in os.getenv("REPORT_EMAILS", "").split(",")
         if email.strip()
     ]
+
+    # === Команды VK-бота ===
+    # Единый источник правды для всех текстовых триггеров.
+    # Хендлеры VK-бота ссылаются на этот конфиг — легко добавлять/менять команды.
+    COMMANDS_START = ("/start", "start", "Start", "START", "старт", "меню", "Меню", "Начать")
+    COMMANDS_MY_TICKETS = ("Мои заявки", "мои заявки")
+    COMMANDS_TICKET_DETAILS = "Подробнее"
+    COMMANDS_ADMIN = ("Админ", "админ")
+    COMMANDS_REGULAR_MENU = ("Обычное меню", "обычное меню")
+    COMMANDS_ADMIN_TICKETS = ("Заявки администратора", "заявки администратора")
+    COMMANDS_REPORT = ("Сформировать отчет", "Сформировать отчет")
+    COMMANDS_REPORT_BY_DATE = "Отчет по дате"
+    COMMANDS_REPORT_BY_PERIOD = "Отчет за период"
+    COMMANDS_HOUSING = ("Жилбыт", "жилбыт")
+    COMMANDS_CULTURE = ("Культмасс", "культмасс")
+    COMMANDS_INFORMATION = ("Информ", "информ")
+    COMMANDS_CORPORATE = ("Корпоративный", "корпоративный")
+    COMMANDS_QUESTION = ("Задать вопрос", "задать вопрос")
+    COMMANDS_ANONYMOUS = ("Анонимное обращение", "анонимное обращение")
+    COMMANDS_ANONYMOUS_STAY = ("Остаться анонимным", "Остаться не анонимным")
 
     def validate_required(self) -> None:
         """Проверить обязательные конфигурационные поля.

@@ -13,10 +13,27 @@ from sqlalchemy.ext.asyncio import (
 
 from core.config import settings
 
-# Подключение к БД работает как в исходной версии проекта: NullPool —
-# по одному подключению на каждый запрос, без пула на стороне приложения.
+# Пул соединений: AsyncPool заменяет NullPool.
+# NullPool открывал новое TCP-соединение на каждый запрос — при 2500+
+# пользователях это гарантированный bottleneck для PostgreSQL.
+#
+# Параметры пула читаются из настроек (core/config.py):
+#   DB_POOL_SIZE     — базовый размер (по умолчанию 20)
+#   DB_MAX_OVERFLOW  — максимальные дополнительные соединения (по умолчанию 10)
+#   DB_POOL_TIMEOUT  — таймаут получения соединения (по умолчанию 30 сек)
+#   DB_POOL_RECYCLE  — время жизни соединения, сек (по умолчанию 1800 = 30 мин)
+#   DB_POOL_PRE_PING — проверка соединения перед выдачей (по умолчанию true)
 if settings.database_url:
-    engine = create_async_engine(settings.database_url, echo=False, poolclass=pool.NullPool)
+    engine = create_async_engine(
+        settings.database_url,
+        echo=False,
+        poolclass=pool.AsyncPool,
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
+        pool_timeout=settings.DB_POOL_TIMEOUT,
+        pool_recycle=settings.DB_POOL_RECYCLE,
+        pool_pre_ping=settings.DB_POOL_PRE_PING,
+    )
 else:
     # Учётные данные не заданы (например, в CI): движок не создаём,
     # тесты используют свой in-memory SQLite (см. tests/conftest.py).
