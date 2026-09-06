@@ -42,7 +42,7 @@ def test_dev_environment_is_not_production():
 
 
 def test_trusted_proxies_empty_by_default():
-    assert settings.TRUSTED_PROXIES == set()
+    assert set() == settings.TRUSTED_PROXIES
 
 
 def test_session_https_only_default_false():

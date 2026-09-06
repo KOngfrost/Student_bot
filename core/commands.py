@@ -48,7 +48,9 @@ COMMANDS_QUESTION = ("Задать вопрос", "задать вопрос")
 COMMANDS_ANONYMOUS = ("Анонимное обращение", "анонимное обращение")
 
 # Выбор режима обратной связи
-COMMANDS_ANONYMOUS_STAY = ("Остаться анонимным", "Остаться не анонимным")
+COMMAND_STAY_ANONYMOUS = "Остаться анонимным"
+COMMAND_REVEAL_IDENTITY = "Остаться не анонимным"
+COMMANDS_ANONYMOUS_STAY = (COMMAND_STAY_ANONYMOUS, COMMAND_REVEAL_IDENTITY)
 
 # Формат команд для ответа администратора
 ADMIN_REPLY_PATTERN = r"^Ответ #(\d+):\s*(.+)$"

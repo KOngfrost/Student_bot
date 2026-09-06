@@ -1,10 +1,9 @@
 """Тесты отчётов: генерация Excel, маскировка анонимных, защита от дублей."""
 
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 
 import pytest
-
 from openpyxl import load_workbook
 
 from core.models import Department, Ticket, TicketStatus, User
@@ -20,7 +19,7 @@ def _make_data(tickets):
 
 def test_build_daily_report_creates_three_sheets():
     data = _make_data([])
-    report = build_daily_report(data, __import__("datetime").datetime(2026, 8, 30))
+    report = build_daily_report(data, datetime(2026, 8, 30))
 
     workbook = load_workbook(BytesIO(report))
     assert workbook.sheetnames == ["Сводка", "Детализация", "Анонимные обращения"]
@@ -38,7 +37,7 @@ def test_report_masks_anonymous_user_data():
     ticket.department = Department(id=1, name="Жилбыт")
 
     data = _make_data([ticket])
-    report = build_daily_report(data, __import__("datetime").datetime(2026, 8, 30))
+    report = build_daily_report(data, datetime(2026, 8, 30))
     workbook = load_workbook(BytesIO(report))
 
     details = workbook["Детализация"]
@@ -61,7 +60,7 @@ def test_report_shows_regular_user_data():
     ticket.department = Department(id=2, name="Информ")
 
     data = _make_data([ticket])
-    report = build_daily_report(data, __import__("datetime").datetime(2026, 8, 30))
+    report = build_daily_report(data, datetime(2026, 8, 30))
     workbook = load_workbook(BytesIO(report))
 
     details = workbook["Детализация"]
@@ -78,7 +77,7 @@ def test_report_summary_counts_completed():
         tickets.append(t)
 
     data = _make_data(tickets)
-    report = build_daily_report(data, __import__("datetime").datetime(2026, 8, 30))
+    report = build_daily_report(data, datetime(2026, 8, 30))
     workbook = load_workbook(BytesIO(report))
 
     summary = workbook["Сводка"]
@@ -92,7 +91,7 @@ def test_report_summary_counts_completed():
 async def test_report_run_deduplication(db_session_maker):
     from core.reporting import is_report_already_sent, mark_report_sent
 
-    day = __import__("datetime").date(2026, 8, 30)
+    day = date(2026, 8, 30)
 
     assert await is_report_already_sent(day) is False
 
@@ -152,9 +151,9 @@ async def test_start_report_scheduler_uses_current_loop(monkeypatch):
 def test_parse_report_date_valid():
     from core.reporting import parse_report_date
 
-    assert parse_report_date("31.08.2026") == __import__("datetime").date(2026, 8, 31)
-    assert parse_report_date("01.01.2025") == __import__("datetime").date(2025, 1, 1)
-    assert parse_report_date("15.06.24") == __import__("datetime").date(2024, 6, 15)
+    assert parse_report_date("31.08.2026") == date(2026, 8, 31)
+    assert parse_report_date("01.01.2025") == date(2025, 1, 1)
+    assert parse_report_date("15.06.24") == date(2024, 6, 15)
 
 
 def test_parse_report_date_invalid():
@@ -164,14 +163,14 @@ def test_parse_report_date_invalid():
     assert parse_report_date("31/08/2026") is None
     assert parse_report_date("не дата") is None
     assert parse_report_date("") is None
-    assert parse_report_date(" 31.08.2026 ") == __import__("datetime").date(2026, 8, 31)  # whitespace stripped
+    assert parse_report_date(" 31.08.2026 ") == date(2026, 8, 31)  # whitespace stripped
 
 
 async def test_get_report_for_period_requires_valid_range():
     from core.reporting import get_report_for_period
 
-    date_from = __import__("datetime").date(2026, 9, 1)
-    date_to = __import__("datetime").date(2026, 8, 31)  # раньше начала
+    date_from = date(2026, 9, 1)
+    date_to = date(2026, 8, 31)  # раньше начала
 
     with pytest.raises(ValueError, match="не может быть позже"):
         await get_report_for_period(date_from, date_to)
@@ -210,8 +209,8 @@ async def test_get_report_for_period_collects_tickets(db_session_maker):
         session.add_all([ticket_in_period, ticket_before, ticket_after])
         await session.commit()
 
-    date_from = __import__("datetime").date(2026, 8, 10)
-    date_to = __import__("datetime").date(2026, 8, 20)
+    date_from = date(2026, 8, 10)
+    date_to = date(2026, 8, 20)
 
     data = await get_report_for_period(date_from, date_to)
     assert len(data["tickets"]) == 1

@@ -18,7 +18,7 @@ from sqlalchemy.orm import selectinload
 
 from core.database import async_session_maker
 from core.models import Admin, Department, User, UserRole, WebRole, WebUser
-from web.dependencies import get_admin_scope, is_superadmin, require_auth, require_superadmin
+from web.dependencies import get_admin_scope, is_superadmin, require_auth
 from web.routes.auth import require_crud_rate_limit
 from web.security.csrf import get_csrf_token
 from web.security.middleware import sanitize_html
@@ -38,10 +38,10 @@ async def admins_page(request: Request, user=Depends(require_auth)):
     - Суперадмин видит всех админов и всех веб-пользователей.
     - Обычный админ — только тех, кто привязан к его отделу.
     """
-    admins = []
-    web_users = []
-    departments = []
-    db_error = False
+    admins: list[Admin] = []
+    web_users: list[WebUser] = []
+    departments: list[Department] = []
+    db_error: bool = False
 
     try:
         async with async_session_maker() as session:
@@ -93,7 +93,7 @@ async def admins_page(request: Request, user=Depends(require_auth)):
 
 
 @router.post("/")
-async def add_admin(request: Request, user=Depends(require_auth)):
+async def add_admin(request: Request, user=Depends(require_auth)):  # noqa: C901 — длинная цепочка валидации формы
     """Добавление нового администратора.
 
     Безопасность:
@@ -106,15 +106,15 @@ async def add_admin(request: Request, user=Depends(require_auth)):
     require_crud_rate_limit(request)
     form = await request.form()
     try:
-        vk_id = int(form.get("vk_id", 0))
+        vk_id: int = int(form.get("vk_id", 0))
     except (TypeError, ValueError):
         request.session["error"] = "VK ID должен быть числом"
         return RedirectResponse(url="/admin/admins/", status_code=302)
-    full_name = sanitize_html(form.get("full_name", ""))
-    department_id = form.get("department_id")
-    role = form.get("role", "admin")
-    username = sanitize_html(str(form.get("username", "")).strip())
-    password = str(form.get("password", ""))
+    full_name: str = sanitize_html(form.get("full_name", ""))
+    department_id: str | None = form.get("department_id")
+    role: str = form.get("role", "admin")
+    username: str = sanitize_html(str(form.get("username", "")).strip())
+    password: str = str(form.get("password", ""))
 
     # Проверка прав: только суперадмин может назначать роль superadmin/viewer
     try:
@@ -126,7 +126,7 @@ async def add_admin(request: Request, user=Depends(require_auth)):
                 request.session["error"] = "Только суперадмин может назначать эту роль"
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
-            selected_department_id = int(department_id) if department_id else None
+            selected_department_id: int | None = int(department_id) if department_id else None
             if not is_superadmin(user):
                 # Обычный админ назначает админов только в свой отдел
                 selected_department_id = user.get("department_id")
@@ -147,7 +147,7 @@ async def add_admin(request: Request, user=Depends(require_auth)):
 
             # Получаем или создаём пользователя VK (наблюдателю он не нужен:
             # VIEWER существует только в веб-панели)
-            db_user = None
+            db_user: User | None = None
             if role != "viewer":
                 db_user = await session.scalar(select(User).where(User.vk_id == vk_id))
                 if not db_user:
@@ -160,7 +160,7 @@ async def add_admin(request: Request, user=Depends(require_auth)):
                     await session.commit()
 
                 # Проверяем, нет ли уже такого админа
-                existing = await session.scalar(
+                existing: Admin | None = await session.scalar(
                     select(Admin).where(Admin.user_id == db_user.id)
                 )
                 if existing:
@@ -223,10 +223,10 @@ async def delete_admin(request: Request, admin_id: int, user=Depends(require_aut
                 return RedirectResponse(url="/admin/admins/", status_code=302)
 
             if admin.role == UserRole.SUPERADMIN:
-                superadmin_count = await session.scalar(
+                superadmin_count: int | None = await session.scalar(
                     select(func.count(Admin.id)).where(Admin.role == UserRole.SUPERADMIN)
                 )
-                if superadmin_count <= 1:
+                if superadmin_count is not None and superadmin_count <= 1:
                     request.session["error"] = "Нельзя удалить последнего суперадмина"
                     return RedirectResponse(url="/admin/admins/", status_code=302)
 

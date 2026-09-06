@@ -6,14 +6,15 @@ from collections.abc import AsyncIterator
 import asyncpg
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import (
-    create_async_engine,
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
+    create_async_engine,
 )
 
 from core.config import settings
 
-# Пул соединений: AsyncPool заменяет NullPool.
+# Пул соединений: AsyncAdaptedQueuePool заменяет NullPool.
 # NullPool открывал новое TCP-соединение на каждый запрос — при 2500+
 # пользователях это гарантированный bottleneck для PostgreSQL.
 #
@@ -23,11 +24,12 @@ from core.config import settings
 #   DB_POOL_TIMEOUT  — таймаут получения соединения (по умолчанию 30 сек)
 #   DB_POOL_RECYCLE  — время жизни соединения, сек (по умолчанию 1800 = 30 мин)
 #   DB_POOL_PRE_PING — проверка соединения перед выдачей (по умолчанию true)
+engine: AsyncEngine | None
 if settings.database_url:
     engine = create_async_engine(
         settings.database_url,
         echo=False,
-        poolclass=pool.AsyncPool,
+        poolclass=pool.AsyncAdaptedQueuePool,
         pool_size=settings.DB_POOL_SIZE,
         max_overflow=settings.DB_MAX_OVERFLOW,
         pool_timeout=settings.DB_POOL_TIMEOUT,
@@ -38,9 +40,11 @@ else:
     # Учётные данные не заданы (например, в CI): движок не создаём,
     # тесты используют свой in-memory SQLite (см. tests/conftest.py).
     engine = None
-async_session_maker = async_sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
-) if engine is not None else None
+# Сессия-мейкер создаётся всегда: в CI/тестах фиксстура подменяет его,
+# в приложении креды БД гарантированы (ensure_production_config).
+# Пустой engine (нет кредов) приведёт к ошибке только при запросе —
+# тип остаётся не-Optional, что честно для 35+ мест использования.
+async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # Строгая валидация имени базы данных.
 # - Начинается с буквы или подчёркивания

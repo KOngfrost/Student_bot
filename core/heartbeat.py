@@ -7,7 +7,7 @@
 
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 HEARTBEAT_FILE = os.getenv("HEARTBEAT_FILE", "/tmp/oss_bot_heartbeat")
 MAX_AGE_SECONDS = int(os.getenv("HEARTBEAT_MAX_AGE", "600"))  # 10 минут
@@ -43,5 +43,5 @@ def heartbeat_timestamp() -> str:
     age = heartbeat_age_seconds()
     if age is None:
         return "нет данных"
-    dt = datetime.fromtimestamp(time.time() - age, tz=timezone.utc)
+    dt = datetime.fromtimestamp(time.time() - age, tz=UTC)
     return dt.isoformat()

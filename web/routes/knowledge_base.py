@@ -15,8 +15,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session_maker
-from core.models import KnowledgeBase
-from web.dependencies import get_admin_scope, get_departments_for_user, require_auth, require_writer
+from core.models import Department, KnowledgeBase
+from web.dependencies import (
+    get_admin_scope,
+    get_departments_for_user,
+    require_auth,
+    require_writer,
+)
 from web.form_utils import parse_form_int
 from web.security.csrf import get_csrf_token
 from web.security.middleware import sanitize_html
@@ -30,9 +35,9 @@ router = APIRouter()
 @router.get("/")
 async def knowledge_base_page(request: Request, user=Depends(require_auth)):
     """Страница базы знаний с IDOR-защитой."""
-    knowledge_base = []
-    departments = []
-    db_error = False
+    knowledge_base: list[KnowledgeBase] = []
+    departments: list[Department] = []
+    db_error: bool = False
 
     try:
         async with async_session_maker() as session:
@@ -49,7 +54,7 @@ async def knowledge_base_page(request: Request, user=Depends(require_auth)):
                     (KnowledgeBase.department_id == dept_id)
                     | (KnowledgeBase.department_id.is_(None))
                 )
-            knowledge_base = (await session.execute(kb_stmt)).scalars().all()
+            knowledge_base = list((await session.execute(kb_stmt)).scalars().all())
     except Exception as e:
         db_error = True
         logger.error("Не удалось загрузить базу знаний: %s", e)
@@ -80,13 +85,13 @@ async def add_knowledge_base(request: Request, user=Depends(require_writer)):
     - Санитизация входных данных от XSS
     """
     form = await request.form()
-    keywords = sanitize_html(str(form.get("keywords", "")))
-    answer = sanitize_html(str(form.get("answer", "")))
+    keywords: str = sanitize_html(str(form.get("keywords", "")))
+    answer: str = sanitize_html(str(form.get("answer", "")))
 
     try:
         async with async_session_maker() as session:
             is_super, dept_id = await get_admin_scope(session, user)
-            department_id = parse_form_int(form, "department_id", default=dept_id)
+            department_id: int | None = parse_form_int(form, "department_id", default=dept_id)
 
             if not is_super:
                 # Админ отдела жёстко привязан к своему отделу

@@ -16,7 +16,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session_maker
-from core.models import Department, Ticket, TicketStatus
+from core.models import Ticket, TicketStatus
 from core.ticket_service import (
     StatusTransitionError,
     assign_ticket_department,
@@ -25,7 +25,13 @@ from core.ticket_service import (
     reply_to_ticket,
 )
 from web.constants import STATUS_CHOICES
-from web.dependencies import get_admin_scope, get_departments_for_user, require_auth, require_superadmin, require_writer
+from web.dependencies import (
+    get_admin_scope,
+    get_departments_for_user,
+    require_auth,
+    require_superadmin,
+    require_writer,
+)
 from web.routes.auth import require_crud_rate_limit
 from web.security.csrf import get_csrf_token
 from web.templating import templates
@@ -46,27 +52,27 @@ async def tickets_page(
     user: dict = Depends(require_auth),
 ):
     """Страница заявок с IDOR-защитой и пагинацией."""
-    tickets = []
-    departments = []
-    db_error = False
-    total = 0
-    current_page = max(1, page)
+    tickets: list[Ticket] = []
+    departments: list = []
+    db_error: bool = False
+    total: int = 0
+    current_page: int = max(1, page)
     page_size = min(max(1, page_size), 100)
-    offset = (current_page - 1) * page_size
-    total_pages = 1
+    offset: int = (current_page - 1) * page_size
+    total_pages: int = 1
 
     try:
         async with async_session_maker() as session:
             is_super, dept_id = await get_admin_scope(session, user)
 
             count_stmt = select(func.count(Ticket.id))
-            filters = []
+            filters: list = []
             if not is_super:
                 filters.append(Ticket.department_id == dept_id)
             elif department_id is not None:
                 filters.append(Ticket.department_id == department_id)
             if q.strip():
-                pattern = f"%{q.strip()}%"
+                pattern: str = f"%{q.strip()}%"
                 filters.append(or_(Ticket.topic.ilike(pattern), Ticket.description.ilike(pattern)))
             if status:
                 try:
@@ -74,7 +80,7 @@ async def tickets_page(
                 except ValueError:
                     status = ""
             count_stmt = count_stmt.where(*filters)
-            total = (await session.scalar(count_stmt)) or 0
+            total = int((await session.scalar(count_stmt)) or 0)
 
             stmt = (
                 select(Ticket)
@@ -84,7 +90,7 @@ async def tickets_page(
                 .limit(page_size)
             )
             stmt = stmt.where(*filters)
-            tickets = (await session.scalars(stmt)).all()
+            tickets = list((await session.scalars(stmt)).all())
 
             departments = await get_departments_for_user(session, user)
     except Exception as e:
@@ -145,7 +151,7 @@ async def get_ticket(ticket_id: int, user: dict = Depends(require_auth)):
     ticket = await _load_ticket_for_user(ticket_id, user)
 
     try:
-        messages = await get_ticket_messages(ticket_id)
+        messages: list = await get_ticket_messages(ticket_id)
     except Exception:
         messages = []
 
@@ -182,7 +188,7 @@ async def reply_ticket(ticket_id: int, request: Request, user: dict = Depends(re
 
     Форма: message (обязательно), complete=on (завершить заявку).
     Сохраняет сообщение, обновляет response_text, статус, шлёт VK-уведомление.
-    
+
     Безопасность:
     - CSRF: защищён middleware CSRFMiddleware
     - Rate limiting: не более 20 запросов на IP за 5 минут
@@ -190,8 +196,8 @@ async def reply_ticket(ticket_id: int, request: Request, user: dict = Depends(re
     """
     require_crud_rate_limit(request)
     form = await request.form()
-    message = str(form.get("message", "")).strip()
-    complete = form.get("complete") == "on"
+    message: str = str(form.get("message", "")).strip()
+    complete: bool = form.get("complete") == "on"
 
     if not message:
         raise HTTPException(status_code=400, detail="Текст ответа не может быть пустым")
@@ -207,7 +213,7 @@ async def reply_ticket(ticket_id: int, request: Request, user: dict = Depends(re
     if ticket is None:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
 
-    note = "" if vk_sent else " (VK-уведомление не доставлено)"
+    note: str = "" if vk_sent else " (VK-уведомление не доставлено)"
     request.session["success"] = f"Ответ на заявку #{ticket_id} отправлен{note}"
     return RedirectResponse(url="/tickets/", status_code=303)
 
@@ -215,7 +221,7 @@ async def reply_ticket(ticket_id: int, request: Request, user: dict = Depends(re
 @router.post("/{ticket_id}/status")
 async def set_ticket_status(ticket_id: int, request: Request, user: dict = Depends(require_writer)):
     """Смена статуса заявки с валидацией переходов.
-    
+
     Безопасность:
     - CSRF: защищён middleware CSRFMiddleware
     - Rate limiting: не более 20 запросов на IP за 5 минут
@@ -224,12 +230,12 @@ async def set_ticket_status(ticket_id: int, request: Request, user: dict = Depen
     """
     require_crud_rate_limit(request)
     form = await request.form()
-    new_status_raw = str(form.get("status", ""))
+    new_status_raw: str = str(form.get("status", ""))
 
     try:
         new_status = TicketStatus(new_status_raw)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Неизвестный статус")
+        raise HTTPException(status_code=400, detail="Неизвестный статус") from None
 
     await _load_ticket_for_user(ticket_id, user)
 
@@ -253,7 +259,7 @@ async def set_ticket_status(ticket_id: int, request: Request, user: dict = Depen
 @router.post("/{ticket_id}/assign")
 async def assign_ticket(ticket_id: int, request: Request, user: dict = Depends(require_superadmin)):
     """Передача заявки другому отделу (только суперадмин).
-    
+
     Безопасность:
     - CSRF: защищён middleware CSRFMiddleware
     - Rate limiting: не более 20 запросов на IP за 5 минут
@@ -263,9 +269,9 @@ async def assign_ticket(ticket_id: int, request: Request, user: dict = Depends(r
     require_crud_rate_limit(request)
     form = await request.form()
     try:
-        department_id = int(form.get("department_id", 0))
+        department_id: int = int(form.get("department_id", 0))
     except ValueError:
-        raise HTTPException(status_code=400, detail="Некорректный отдел")
+        raise HTTPException(status_code=400, detail="Некорректный отдел") from None
 
     await _load_ticket_for_user(ticket_id, user)
 

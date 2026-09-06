@@ -19,8 +19,8 @@ from core.database import async_session_maker
 from core.models import Admin, Log
 from web.dependencies import get_admin_scope, require_auth
 from web.security.csrf import get_csrf_token
-from web.templating import templates
 from web.security.middleware import escape_for_csv, sanitize_csv_field
+from web.templating import templates
 
 logger = logging.getLogger(__name__)
 
@@ -36,22 +36,22 @@ async def logs_page(
     user=Depends(require_auth),
 ):
     """Страница логов с пагинацией."""
-    logs = []
-    db_error = False
-    total = 0
-    current_page = max(1, page)
-    offset = (current_page - 1) * LOGS_PER_PAGE
+    logs: list[Log] = []
+    db_error: bool = False
+    total: int = 0
+    current_page: int = max(1, page)
+    offset: int = (current_page - 1) * LOGS_PER_PAGE
 
     try:
         async with async_session_maker() as session:
             is_super, dept_id = await get_admin_scope(session, user)
-            allowed_user_ids = select(Admin.user_id).where(Admin.department_id == dept_id)
+            allowed_user_ids: select = select(Admin.user_id).where(Admin.department_id == dept_id)
 
             # Общее количество для пагинации
             count_stmt = select(func.count(Log.id))
             if not is_super:
                 count_stmt = count_stmt.where(Log.user_id.in_(allowed_user_ids))
-            total = (await session.scalar(count_stmt)) or 0
+            total = int((await session.scalar(count_stmt)) or 0)
 
             logs_stmt = (
                 select(Log)
@@ -63,7 +63,7 @@ async def logs_page(
             if not is_super:
                 logs_stmt = logs_stmt.where(Log.user_id.in_(allowed_user_ids))
             logs_result = await session.execute(logs_stmt)
-            logs = logs_result.scalars().all()
+            logs = list(logs_result.scalars().all())
     except Exception as e:
         db_error = True
         logger.error("Не удалось загрузить логи: %s", e)
@@ -97,7 +97,7 @@ async def export_logs(user=Depends(require_auth)):
     try:
         async with async_session_maker() as session:
             is_super, dept_id = await get_admin_scope(session, user)
-            allowed_user_ids = select(Admin.user_id).where(Admin.department_id == dept_id)
+            allowed_user_ids: select = select(Admin.user_id).where(Admin.department_id == dept_id)
             logs_stmt = (
                 select(Log)
                 .options(selectinload(Log.user))
@@ -107,16 +107,16 @@ async def export_logs(user=Depends(require_auth)):
             if not is_super:
                 logs_stmt = logs_stmt.where(Log.user_id.in_(allowed_user_ids))
             logs_result = await session.execute(logs_stmt)
-            logs = logs_result.scalars().all()
+            logs: list[Log] = list(logs_result.scalars().all())
     except Exception:
         logs = []
 
-    csv_content = "\ufeffID,Пользователь,Действие,Детали,Дата\n"
+    csv_content: str = "\ufeffID,Пользователь,Действие,Детали,Дата\n"
     for log in logs:
-        username = escape_for_csv(log.user.full_name if log.user else "Аноним")
-        action = escape_for_csv(log.action or "")
-        details = escape_for_csv(sanitize_csv_field(log.details or ""))
-        date_str = log.created_at.strftime("%Y-%m-%d %H:%M") if log.created_at else ""
+        username: str = escape_for_csv(log.user.full_name if log.user else "Аноним")
+        action: str = escape_for_csv(log.action or "")
+        details: str = escape_for_csv(sanitize_csv_field(log.details or ""))
+        date_str: str = log.created_at.strftime("%Y-%m-%d %H:%M") if log.created_at else ""
         csv_content += f"{log.id},{username},{action},{details},{date_str}\n"
 
     return Response(

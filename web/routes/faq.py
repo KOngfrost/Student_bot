@@ -15,8 +15,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session_maker
-from core.models import FAQNode
-from web.dependencies import get_admin_scope, get_departments_for_user, require_auth, require_writer
+from core.models import Department, FAQNode
+from web.dependencies import (
+    get_admin_scope,
+    get_departments_for_user,
+    require_auth,
+    require_writer,
+)
 from web.form_utils import parse_form_int
 from web.security.csrf import get_csrf_token
 from web.security.middleware import sanitize_html
@@ -27,7 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _attach_depths(nodes: list) -> None:
+def _attach_depths(nodes: list["FAQNode"]) -> None:
     """Проставить node.depth (глубина в дереве FAQ) для отрисовки вложенности.
 
     Узлы без существующего родителя считаются корневыми (в БД parent_id
@@ -59,9 +64,9 @@ def _attach_depths(nodes: list) -> None:
 @router.get("/")
 async def faq_page(request: Request, user=Depends(require_auth)):
     """Страница FAQ-дерева с IDOR-защитой."""
-    faq_nodes = []
-    departments = []
-    db_error = False
+    faq_nodes: list[FAQNode] = []
+    departments: list[Department] = []
+    db_error: bool = False
 
     try:
         async with async_session_maker() as session:
@@ -102,9 +107,9 @@ async def faq_page(request: Request, user=Depends(require_auth)):
 async def add_faq(request: Request, user=Depends(require_writer)):
     """Добавление элемента FAQ с санитизацией входных данных."""
     form = await request.form()
-    question = sanitize_html(str(form.get("question", "")))
-    is_final = form.get("is_final") == "on"
-    final_answer = sanitize_html(str(form.get("final_answer", ""))) if is_final else None
+    question: str = sanitize_html(str(form.get("question", "")))
+    is_final: bool = form.get("is_final") == "on"
+    final_answer: str | None = sanitize_html(str(form.get("final_answer", ""))) if is_final else None
 
     if not question.strip():
         request.session["error"] = "Текст вопроса обязателен"
@@ -116,7 +121,7 @@ async def add_faq(request: Request, user=Depends(require_writer)):
     try:
         async with async_session_maker() as session:
             is_super, dept_id = await get_admin_scope(session, user)
-            department_id = parse_form_int(form, "department_id", default=dept_id)
+            department_id: int | None = parse_form_int(form, "department_id", default=dept_id)
             if not is_super:
                 # Админ отдела жёстко привязан к своему отделу
                 department_id = dept_id
@@ -124,7 +129,7 @@ async def add_faq(request: Request, user=Depends(require_writer)):
                 request.session["error"] = "Не выбран отдел"
                 return RedirectResponse(url="/faq/", status_code=303)
 
-            parent_id = parse_form_int(form, "parent_id")
+            parent_id: int | None = parse_form_int(form, "parent_id")
             if parent_id is not None:
                 # Родитель должен существовать и принадлежать тому же отделу
                 parent = await session.get(FAQNode, parent_id)

@@ -22,6 +22,16 @@ setup_logging()
 # Флаг, чтобы планировщик запускался только один раз
 _scheduler_started = False
 
+# Ссылки на фоновые задачи: без сильной ссылки GC может уничтожить задачу
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_background_task(coro) -> None:
+    """Создать фоновую задачу и удерживать ссылку на неё до завершения."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
 
 def initialize_database() -> None:
     """Применяет Alembic-миграции.
@@ -55,7 +65,7 @@ async def _start_scheduler() -> None:
     # что и изменения заявок (см. core/outbox.py).
     from core.outbox import outbox_worker_loop
 
-    asyncio.create_task(outbox_worker_loop())
+    _spawn_background_task(outbox_worker_loop())
 
     # Периодическое обновление heartbeat для docker healthcheck
     async def _heartbeat_loop() -> None:
@@ -63,7 +73,7 @@ async def _start_scheduler() -> None:
             touch_heartbeat()
             await asyncio.sleep(60)
 
-    asyncio.create_task(_heartbeat_loop())
+    _spawn_background_task(_heartbeat_loop())
 
 
 def run_vk_polling() -> None:

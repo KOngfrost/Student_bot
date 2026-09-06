@@ -2,8 +2,10 @@
 
 from typing import Any
 
+from starlette.datastructures import FormData
 
-def parse_form_int(form: dict, key: str, default: int | None = None) -> int | None:
+
+def parse_form_int(form: FormData, key: str, default: int | None = None) -> int | None:
     """Безопасно разобрать целое число из формы.
 
     Пустая строка, отсутствие поля и нечисловое значение возвращают

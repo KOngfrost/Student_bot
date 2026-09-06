@@ -16,19 +16,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select
+
 from core.database import async_session_maker
 from core.models import Admin, User, UserRole
 
 
-async def init_superadmin(vk_id: int, full_name: str = ""):
+async def init_superadmin(vk_id: int, full_name: str = "") -> None:
     """Создаёт или повышает одного пользователя до суперадмина."""
     async with async_session_maker() as session:
         # Получаем или создаём пользователя
-        user = await session.execute(
+        user_result = await session.execute(
             select(User).where(User.vk_id == vk_id)
         )
-        user = user.scalar_one_or_none()
-        
+        user: User | None = user_result.scalar_one_or_none()
+
         if not user:
             user = User(vk_id=vk_id, full_name=full_name or None)
             session.add(user)
@@ -40,8 +41,8 @@ async def init_superadmin(vk_id: int, full_name: str = ""):
                 print(f"✅ Обновлено имя: {full_name}")
             else:
                 print(f"ℹ️  Пользователь уже существует: {user.full_name or vk_id}")
-        
-        existing_admin = await session.scalar(
+
+        existing_admin: Admin | None = await session.scalar(
             select(Admin).where(Admin.user_id == user.id)
         )
         if existing_admin is not None:
@@ -55,14 +56,14 @@ async def init_superadmin(vk_id: int, full_name: str = ""):
             return
 
         # Создаём очередного суперадмина
-        admin = Admin(
+        admin: Admin = Admin(
             user_id=user.id,
             department_id=None,
             role=UserRole.SUPERADMIN,
         )
         session.add(admin)
         await session.commit()
-        
+
         print("\n🎉 Суперадмин успешно создан!")
         print(f"   Имя: {full_name or 'Не указано'}")
         print(f"   VK ID: {vk_id}")
@@ -71,12 +72,12 @@ async def init_superadmin(vk_id: int, full_name: str = ""):
         print("   WEB_ADMIN_PASSWORD=<ваш пароль>")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Инициализация суперадмина")
     parser.add_argument("--vk-id", type=int, required=True, help="VK ID пользователя")
     parser.add_argument("--name", type=str, default="", help="ФИО пользователя")
     args = parser.parse_args()
-    
+
     try:
         asyncio.run(init_superadmin(args.vk_id, args.name))
     except Exception as e:

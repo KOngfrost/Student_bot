@@ -8,7 +8,7 @@ import time
 from collections import defaultdict
 
 import bleach
-from fastapi import Request, HTTPException, status
+from fastapi import HTTPException, Request, status
 from fastapi.responses import Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -47,7 +47,7 @@ CONTENT_SECURITY_POLICY = CONTENT_SECURITY_POLICY_BASE
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Добавляет заголовки безопасности к каждому ответу.
-    
+
     Включает CSP с nonce для script-src и style-src.
     Nonce генерируется для каждого запроса и передаётся через request.state
     для использования в шаблонах.
@@ -58,23 +58,23 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         script_nonce = secrets.token_urlsafe(16)
         # Отдельный nonce для style-src (лучшая практика CSP)
         style_nonce = secrets.token_urlsafe(16)
-        
+
         # Сохраняем nonce в request.state для использования в шаблонах
         request.state.script_nonce = script_nonce
         request.state.style_nonce = style_nonce
-        
+
         # Формируем CSP с nonce
         csp = CONTENT_SECURITY_POLICY_BASE.format(
             nonce=script_nonce,
             nonce_style=style_nonce,
         )
-        
+
         response = await call_next(request)
-        
+
         for header, value in SECURITY_HEADERS.items():
             response.headers[header] = value
         response.headers["Content-Security-Policy"] = csp
-        
+
         # Скрываем заголовок Server
         if "Server" in response.headers:
             del response.headers["Server"]
@@ -125,15 +125,17 @@ def check_rate_limit(key: str, limiter: RateLimiter) -> bool:
 ALLOWED_TAGS: list[str] = []
 
 # Разрешённые атрибуты (пусто — удаляем все атрибуты, включая on*).
-ALLOWED_ATTRIBUTES: dict[str, list[str] | bool] = {}
+ALLOWED_ATTRIBUTES: dict[str, list[str]] = {}
 
 
 def sanitize_html(value: str) -> str:
     """Очистить HTML-ввод от XSS с помощью bleach.
 
-    Удаляет все HTML-теги и атрибуты — возвращает чистый текст.
-    В отличие от regex-подхода, bleach корректно обрабатывает вложенные
-    теги, сущности и edge-кейсы, которые regex мог пропустить.
+    Экранирует все HTML-теги и атрибуты (strip=False) — данные пользователя
+    сохраняются и безопасно отображаются как текст. В отличие от strip=True,
+    не вырезает содержимое тегов («error in line < 5» остаётся читаемым).
+    bleach корректно обрабатывает вложенные теги, сущности и edge-кейсы,
+    которые regex мог пропустить.
     """
     if not value or not isinstance(value, str):
         return value or ""
@@ -143,8 +145,11 @@ def sanitize_html(value: str) -> str:
             value,
             tags=ALLOWED_TAGS,
             attributes=ALLOWED_ATTRIBUTES,
-            strip=True,
+            strip=False,
         )
+        # bleach экранирует < > &, но не кавычки — дополняем вручную,
+        # чтобы вложить результат в HTML-атрибут было безопасно
+        cleaned = cleaned.replace('"', "&quot;").replace("'", "&#x27;")
         # Логирование попыток XSS
         if cleaned != value:
             logger.warning("XSS-паттерн очищен bleach: %s", value[:200])

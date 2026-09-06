@@ -15,7 +15,7 @@ import secrets
 # Пытаемся импортировать argon2-cffi, если доступен
 try:
     from argon2 import PasswordHasher, Type
-    from argon2.exceptions import VerifyMismatchError, VerificationError, InvalidHashError
+    from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
     HAS_ARGON2 = True
     _argon2_ph = PasswordHasher(
         time_cost=3,        # количество итераций
@@ -35,7 +35,7 @@ PBKDF2_ITERATIONS = 100_000
 
 def hash_password(password: str) -> str:
     """Хешировать пароль в самодостаточную строку для хранения в БД.
-    
+
     Использует Argon2id если доступен, иначе PBKDF2.
     """
     if HAS_ARGON2:
@@ -50,13 +50,13 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, stored: str | None) -> bool:
     """Проверить пароль против сохранённого хеша (timing-safe).
-    
+
     Поддерживает оба формата: argon2 и pbkdf2_sha256.
     При проверке PBKDF2-хеша автоматически обновляет на Argon2.
     """
     if not stored:
         return False
-    
+
     try:
         if stored.startswith("$argon2id$"):
             if not HAS_ARGON2:
@@ -65,7 +65,7 @@ def verify_password(password: str, stored: str | None) -> bool:
                 return _argon2_ph.verify(stored, password)
             except (VerifyMismatchError, VerificationError, InvalidHashError):
                 return False
-        
+
         if stored.startswith("pbkdf2_sha256$"):
             algorithm, iterations, salt, expected = stored.split("$", 3)
             if algorithm != "pbkdf2_sha256":
@@ -79,7 +79,7 @@ def verify_password(password: str, stored: str | None) -> bool:
             return secrets.compare_digest(
                 base64.b64encode(digest).decode("ascii"), expected
             )
-        
+
         return False
     except (ValueError, TypeError):
         return False
@@ -87,7 +87,7 @@ def verify_password(password: str, stored: str | None) -> bool:
 
 def needs_rehash(stored: str | None) -> bool:
     """Проверить, нужно ли перевычислить хеш (миграция на Argon2).
-    
+
     Возвращает True, если хеш в устаревшем формате (PBKDF2) и Argon2 доступен.
     """
     if not stored or not HAS_ARGON2:

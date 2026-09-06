@@ -21,3 +21,6 @@ Status/
 .DS_Store
 node_modules/
 test/
+
+# Dev-секрет сессий (генерируется автоматически в development-режиме)
+.session_secret

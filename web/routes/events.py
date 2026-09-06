@@ -8,7 +8,7 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
@@ -16,8 +16,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session_maker
-from core.models import Event
-from web.dependencies import get_admin_scope, get_departments_for_user, require_auth, require_writer
+from core.models import Department, Event
+from web.dependencies import (
+    get_admin_scope,
+    get_departments_for_user,
+    require_auth,
+    require_writer,
+)
 from web.form_utils import parse_form_int
 from web.security.csrf import get_csrf_token
 from web.security.middleware import sanitize_html
@@ -31,9 +36,9 @@ router = APIRouter()
 @router.get("/")
 async def events_page(request: Request, user=Depends(require_auth)):
     """Страница событий с IDOR-защитой."""
-    events = []
-    departments = []
-    db_error = False
+    events: list[Event] = []
+    departments: list[Department] = []
+    db_error: bool = False
 
     try:
         async with async_session_maker() as session:
@@ -49,7 +54,7 @@ async def events_page(request: Request, user=Depends(require_auth)):
                 events_stmt = events_stmt.where(
                     (Event.department_id == dept_id) | (Event.department_id.is_(None))
                 )
-            events = (await session.execute(events_stmt)).scalars().all()
+            events = list((await session.execute(events_stmt)).scalars().all())
     except Exception as e:
         db_error = True
         logger.error("Не удалось загрузить события: %s", e)
@@ -74,9 +79,9 @@ async def events_page(request: Request, user=Depends(require_auth)):
 async def add_event(request: Request, user=Depends(require_writer)):
     """Создание события с санитизацией входных данных."""
     form = await request.form()
-    title = sanitize_html(str(form.get("title", "")))
-    description = sanitize_html(str(form.get("description", "")))
-    event_date_str = str(form.get("event_date", ""))
+    title: str = sanitize_html(str(form.get("title", "")))
+    description: str = sanitize_html(str(form.get("description", "")))
+    event_date_str: str = str(form.get("event_date", ""))
 
     if not title.strip():
         request.session["error"] = "Название события обязательно"
@@ -85,7 +90,7 @@ async def add_event(request: Request, user=Depends(require_writer)):
     try:
         event_date = datetime.fromisoformat(event_date_str)
         if event_date.tzinfo is None:
-            event_date = event_date.replace(tzinfo=timezone.utc)
+            event_date = event_date.replace(tzinfo=UTC)
     except ValueError:
         request.session["error"] = "Некорректная дата события"
         return RedirectResponse(url="/events/", status_code=303)
@@ -93,7 +98,7 @@ async def add_event(request: Request, user=Depends(require_writer)):
     try:
         async with async_session_maker() as session:
             is_super, dept_id = await get_admin_scope(session, user)
-            department_id = parse_form_int(form, "department_id", default=dept_id)
+            department_id: int | None = parse_form_int(form, "department_id", default=dept_id)
 
             if not is_super:
                 # Админ отдела жёстко привязан к своему отделу

@@ -1,9 +1,35 @@
+import contextlib
 import os
 import secrets
+from pathlib import Path
 from urllib.parse import quote_plus
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Файл dev-фоллбэка секрета сессий (добавлен в .gitignore)
+_DEV_SECRET_FILE = Path(__file__).resolve().parent.parent / ".session_secret"
+
+
+def _load_or_create_dev_secret() -> str:
+    """Dev-фоллбэк секрета сессий: файл .session_secret в корне проекта.
+
+    Секрет генерируется один раз и сохраняется на диск, чтобы сессии
+    веб-панели переживали перезапуск процесса в development-режиме.
+    В production секрет обязателен в .env — ensure_production_config()
+    прервёт запуск без него.
+    """
+    # Читаем существующий секрет; FileNotFoundError/OSError — создадим новый
+    with contextlib.suppress(OSError):
+        value = _DEV_SECRET_FILE.read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    value = secrets.token_urlsafe(64)
+    # Нет прав на запись — секрет будет новым при каждом запуске (только dev)
+    with contextlib.suppress(OSError):
+        _DEV_SECRET_FILE.write_text(value, encoding="utf-8")
+    return value
 
 
 class Settings:
@@ -78,12 +104,16 @@ class Settings:
 
     @property
     def session_secret_key(self) -> str:
-        """Возвращает секрет сессии с fallback на случайную генерацию в dev."""
+        """Секрет сессий веб-панели.
+
+        В production обязателен SESSION_SECRET_KEY из .env (проверяется в
+        ensure_production_config). В dev при пустом значении используется
+        персистентный фоллбэк: файл .session_secret
+        (см. _load_or_create_dev_secret).
+        """
         if self.SESSION_SECRET_KEY:
             return self.SESSION_SECRET_KEY
-        # Dev-фоллбэк: генерируем при каждом импорте (не идеально, но работает для dev)
-        # В production это блокируется ensure_production_config()
-        return secrets.token_urlsafe(64)
+        return _load_or_create_dev_secret()
 
     # === Web admin panel ===
     # https_only для session-cookie:
@@ -129,25 +159,8 @@ class Settings:
         if email.strip()
     ]
 
-    # === Команды VK-бота ===
-    # Единый источник правды для всех текстовых триггеров.
-    # Хендлеры VK-бота ссылаются на этот конфиг — легко добавлять/менять команды.
-    COMMANDS_START = ("/start", "start", "Start", "START", "старт", "меню", "Меню", "Начать")
-    COMMANDS_MY_TICKETS = ("Мои заявки", "мои заявки")
-    COMMANDS_TICKET_DETAILS = "Подробнее"
-    COMMANDS_ADMIN = ("Админ", "админ")
-    COMMANDS_REGULAR_MENU = ("Обычное меню", "обычное меню")
-    COMMANDS_ADMIN_TICKETS = ("Заявки администратора", "заявки администратора")
-    COMMANDS_REPORT = ("Сформировать отчет", "Сформировать отчет")
-    COMMANDS_REPORT_BY_DATE = "Отчет по дате"
-    COMMANDS_REPORT_BY_PERIOD = "Отчет за период"
-    COMMANDS_HOUSING = ("Жилбыт", "жилбыт")
-    COMMANDS_CULTURE = ("Культмасс", "культмасс")
-    COMMANDS_INFORMATION = ("Информ", "информ")
-    COMMANDS_CORPORATE = ("Корпоративный", "корпоративный")
-    COMMANDS_QUESTION = ("Задать вопрос", "задать вопрос")
-    COMMANDS_ANONYMOUS = ("Анонимное обращение", "анонимное обращение")
-    COMMANDS_ANONYMOUS_STAY = ("Остаться анонимным", "Остаться не анонимным")
+    # Команды VK-бота вынесены в core/commands.py — единый источник правды,
+    # который импортируют хендлеры (bots/vk/bot.py).
 
     def validate_required(self) -> None:
         """Проверить обязательные конфигурационные поля.

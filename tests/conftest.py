@@ -12,38 +12,40 @@ os.environ.setdefault("SESSION_SECRET_KEY", "test_secret_key_for_tests_123456789
 os.environ["APP_ENV"] = "development"
 os.environ["SESSION_HTTPS_ONLY"] = "false"
 
-import pytest_asyncio  # noqa: E402
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
-import core.database as database_module  # noqa: E402
-import core.outbox as outbox_module  # noqa: E402
-import core.reporting as reporting_module  # noqa: E402
-import core.ticket_service as ticket_service_module  # noqa: E402
-from core.models import Base  # noqa: E402
+import core.database as database_module
+import core.outbox as outbox_module
+import core.reporting as reporting_module
+import core.ticket_service as ticket_service_module
+from core.models import Base
 
 
 @pytest_asyncio.fixture
-async def db_session_maker():
-    """Async session maker на in-memory SQLite с подменой во всех модулях."""
+async def db_session_maker(monkeypatch):
+    """Async session maker на in-memory SQLite с подменой во всех модулях.
+
+    Подмена выполняется через monkeypatch: pytest гарантированно
+    восстанавливает исходные атрибуты модулей даже при падении теста.
+    ВАЖНО: паттерн с подменой атрибутов модулей несовместим с запуском
+    тестов в нескольких потоках одного процесса; при распараллеливании
+    используйте отдельные процессы (pytest-xdist) либо рефакторинг
+    сервисов на явную передачу session-factory.
+    """
     engine = create_async_engine("sqlite+aiosqlite://")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    originals = [
-        (database_module, database_module.async_session_maker),
-        (ticket_service_module, ticket_service_module.async_session_maker),
-        (reporting_module, reporting_module.async_session_maker),
-        (outbox_module, outbox_module.async_session_maker),
-    ]
-    database_module.async_session_maker = maker
-    ticket_service_module.async_session_maker = maker
-    reporting_module.async_session_maker = maker
-    outbox_module.async_session_maker = maker
+    for module in (database_module, ticket_service_module, reporting_module, outbox_module):
+        monkeypatch.setattr(module, "async_session_maker", maker, raising=True)
 
     yield maker
 
-    for module, original in originals:
-        module.async_session_maker = original
     await engine.dispose()

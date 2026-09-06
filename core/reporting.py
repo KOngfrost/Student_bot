@@ -2,7 +2,7 @@ import asyncio
 import logging
 import secrets
 import smtplib
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -201,7 +201,7 @@ def send_report_email(report_bytes: bytes, filename: str) -> None:
         return
 
     msg = MIMEMultipart()
-    msg["Subject"] = f"Отчёт студенческого бота за {datetime.now(timezone.utc):%d.%m.%Y}"
+    msg["Subject"] = f"Отчёт студенческого бота за {datetime.now(UTC):%d.%m.%Y}"
     msg["From"] = settings.SMTP_FROM
     msg["To"] = ", ".join(settings.REPORT_EMAILS)
 

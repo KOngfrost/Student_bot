@@ -37,6 +37,12 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt -r requirements-dev.txt
+      # Защита от форков истории миграций: голова должна быть ровно одна
+      - name: Alembic — ровно одна голова миграций
+        run: |
+          heads=$(python -m alembic heads | grep -c '^[a-f0-9]')
+          echo "heads: $heads"
+          test "$heads" -eq 1
       - run: pytest -v
 
   docker-build:

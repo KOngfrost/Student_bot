@@ -10,23 +10,23 @@
 - IDOR-фильтрацию
 """
 
-import pytest
-import re
-from unittest.mock import MagicMock
-from fastapi.testclient import TestClient
-
-import sys
 import os
+import re
+import sys
+from unittest.mock import MagicMock
+
+import pytest
+from fastapi.testclient import TestClient
 
 # Добавляем корень проекта в sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from web.security.csrf import get_csrf_token, rotate_csrf_token, validate_csrf
 from web.security.middleware import (
-    sanitize_csv_field,
-    escape_for_csv,
-    sanitize_html,
     RequestSizeValidator,
+    escape_for_csv,
+    sanitize_csv_field,
+    sanitize_html,
 )
 from web.security.passwords import hash_password, verify_password
 
@@ -91,7 +91,7 @@ class TestSecurityHeaders:
 
     def test_security_headers_dict(self):
         """Проверка наличия всех критических заголовков."""
-        from web.security.middleware import SECURITY_HEADERS, CONTENT_SECURITY_POLICY
+        from web.security.middleware import CONTENT_SECURITY_POLICY, SECURITY_HEADERS
 
         assert "X-Frame-Options" in SECURITY_HEADERS
         assert SECURITY_HEADERS["X-Frame-Options"] == "DENY"

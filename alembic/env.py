@@ -6,10 +6,10 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
+from core.config import settings
 
 # Подгружаем модели, чтобы Alembic видел их метаданные
 from core.models import Base
-from core.config import settings
 
 # this is the Alembic Config object
 config = context.config

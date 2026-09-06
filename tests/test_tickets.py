@@ -1,5 +1,7 @@
 """Тесты сервиса заявок: переходы статусов, форматирование, маскировка."""
 
+from datetime import datetime
+
 import pytest
 
 from core.models import Department, MessageAuthorType, Ticket, TicketMessage, TicketStatus, User
@@ -134,8 +136,9 @@ async def test_get_user_tickets_excludes_completed(db_session_maker):
 
 async def test_get_user_tickets_pagination(db_session_maker):
     """Пагинация: limit/offset работают и не нарушают порядок (новые сверху)."""
-    from core.ticket_service import get_user_tickets
     from sqlalchemy import select
+
+    from core.ticket_service import get_user_tickets
 
     async with db_session_maker() as session:
         user = User(vk_id=444)
@@ -148,7 +151,7 @@ async def test_get_user_tickets_pagination(db_session_maker):
                 Ticket(
                     user_id=db_user.id,
                     topic=f"Заявка {i}",
-                    created_at=__import__("datetime").datetime(2026, 9, 1, 10, i),
+                    created_at=datetime(2026, 9, 1, 10, i),
                 )
             )
         await session.commit()

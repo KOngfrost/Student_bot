@@ -11,7 +11,7 @@ from core.vk_compat import patch_vkbottle_logging
 
 patch_vkbottle_logging()
 
-from vkbottle import BaseStateGroup, Bot
+from vkbottle import BaseStateGroup, Bot, ErrorHandler
 from vkbottle.bot import Message
 from vkbottle.dispatch.rules.base import RegexRule
 from vkbottle.exception_factory.base_exceptions import VKAPIError
@@ -22,6 +22,7 @@ from core.commands import (
     COMMANDS_ADMIN_TICKETS,
     COMMANDS_ANONYMOUS,
     COMMANDS_ANONYMOUS_STAY,
+    COMMAND_REVEAL_IDENTITY,
     COMMANDS_CORPORATE,
     COMMANDS_CULTURE,
     COMMANDS_HOUSING,
@@ -39,8 +40,8 @@ from core.config import settings
 from core.bot_core import BotCore
 from core.database import async_session_maker
 from core.heartbeat import touch_heartbeat
-from core.models import Admin, Ticket, TicketStatus, User, UserRole
-from core.reporting import build_daily_report, get_app_tz, get_report_for_date, get_report_for_period, parse_report_date, send_report_to_vk
+from core.models import Ticket, TicketStatus
+from core.reporting import build_daily_report, get_report_for_date, get_report_for_period, parse_report_date, send_report_to_vk
 from core.ticket_service import (
     STATUS_LABELS,
     StatusTransitionError,
@@ -57,6 +58,29 @@ from web.dependencies import get_admin_scope_for_vk_id
 from bots.vk.keyboards import build_admin_keyboard, build_main_keyboard, build_tickets_keyboard
 
 vk_bot = Bot(token=settings.VK_BOT_TOKEN)
+
+# Глобальный перехватчик ошибок: ни одна ошибка не должна уйти
+# пользователю в виде traceback. ErrorHandler подключается ко всем
+# view роутера (API vkbottle 4.11: см. exception_factory.error_handler).
+_error_handler = ErrorHandler(redirect_arguments=True)
+
+
+@_error_handler.register_undefined_error_handler
+async def _handle_bot_error(error: Exception, message: Message | None = None):
+    logger.exception("Необработанная ошибка в боте", exc_info=error)
+    # Пользователю — безопасное сообщение без деталей
+    if message is not None:
+        try:
+            await message.answer(
+                "Произошла внутренняя ошибка. Пожалуйста, попробуйте позже."
+            )
+        except Exception:
+            logger.exception("Не удалось отправить сообщение об ошибке пользователю")
+    return None
+
+
+for _view in vk_bot.on.views().values():
+    _view.error_handler = _error_handler
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +290,7 @@ async def ticket_description_handler(message: Message):
 )
 async def ticket_identity_choice_handler(message: Message):
     """Создать обращение после выбора канала обратной связи."""
-    keep_identity = message.text == "Остаться не анонимным"
+    keep_identity = message.text == COMMAND_REVEAL_IDENTITY
     state_peer = await vk_bot.state_dispenser.get(message.from_id)
     payload = state_peer.payload if state_peer else {}
     description = payload.get("description", "")
@@ -345,14 +369,14 @@ async def admin_tickets_handler(message: Message):
     """Показать оператору заявки, доступные его отделу."""
     async with async_session_maker() as session:
         is_super, dept_id = await get_admin_scope_for_vk_id(session, message.from_id)
-    
+
     if not is_super and dept_id is None:
         await message.answer(
             "У вас нет доступа к заявкам администратора.",
             keyboard=await _main_keyboard_for(message.from_id),
         )
         return
-    
+
     async with async_session_maker() as session:
         stmt = (
             select(Ticket).options(selectinload(Ticket.department))
@@ -638,12 +662,4 @@ async def fallback_handler(message: Message):
 
 
 if __name__ == "__main__":
-    # Глобальный перехватчик ошибок: ни одна ошибка не должна
-    # попасть в виде traceback в сообщение пользователю.
-    @vk_bot.exception_handler()
-    async def handle_all_errors(error: Exception):
-        logger.exception("Необработанная ошибка в боте", exc_info=error)
-        # Пользователю — безопасное сообщение без деталей
-        return {"error": "Произошла внутренняя ошибка. Пожалуйста, попробуйте позже."}
-
     vk_bot.run()

@@ -10,12 +10,14 @@
   а не из сессии, чтобы предотвратить горизонтальную эскалацию прав.
 """
 
+import logging
+
 from fastapi import HTTPException, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import async_session_maker
-from core.models import Admin, UserRole, WebRole, WebUser
-import logging
+from core.models import Admin, Department, User, UserRole, WebRole, WebUser
 
 logger = logging.getLogger(__name__)
 
@@ -187,21 +189,18 @@ async def get_admin_scope(session: AsyncSession, user: dict) -> tuple[bool, int 
 
 async def get_departments_for_user(session: AsyncSession, user: dict) -> list:
     """Загрузить список отделов, видимых пользователю.
-    
+
     Возвращает список Department:
     - суперадмин: все отделы
     - админ отдела: только свой отдел
     - VIEWER: все отделы
     """
-    from core.models import Department
-    from sqlalchemy import select
-    
     role = role_of(user)
     if role == WebRole.SUPERADMIN or role == WebRole.VIEWER:
         return (await session.execute(
             select(Department).order_by(Department.name)
         )).scalars().all()
-    
+
     if role == WebRole.DEPARTMENT_ADMIN:
         web_user_id = user.get("web_user_id")
         if web_user_id:
@@ -209,14 +208,14 @@ async def get_departments_for_user(session: AsyncSession, user: dict) -> list:
             if web_user and web_user.department_id:
                 dept = await session.get(Department, web_user.department_id)
                 return [dept] if dept else []
-        
+
         admin_user_id = user.get("user_id")
         if admin_user_id:
             admin = await session.get(Admin, admin_user_id)
             if admin and admin.department_id:
                 dept = await session.get(Department, admin.department_id)
                 return [dept] if dept else []
-    
+
     return []
 
 
@@ -230,8 +229,6 @@ async def get_admin_scope_for_vk_id(session: AsyncSession, vk_id: int) -> tuple[
 
     БЕЗОПАСНОСТЬ: department_id проверяется через БД (таблица admins).
     """
-    from core.models import Admin, Department, UserRole
-
     admin = await session.scalar(
         select(Admin).join(User, Admin.user_id == User.id).where(User.vk_id == vk_id)
     )

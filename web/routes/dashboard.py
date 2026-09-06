@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from core.database import async_session_maker
 from core.models import Ticket, TicketStatus
-from web.dependencies import get_admin_scope, get_departments_for_user, require_auth
+from web.dependencies import get_admin_scope, require_auth
 from web.security.csrf import get_csrf_token
 from web.templating import templates
 
@@ -25,9 +25,9 @@ router = APIRouter()
 @router.get("/")
 async def dashboard(request: Request, user: dict = Depends(require_auth)):
     """Главная страница дашборда с IDOR-защитой."""
-    db_error = False
-    recent_tickets = []
-    ticket_counts: dict = {}
+    db_error: bool = False
+    recent_tickets: list[Ticket] = []
+    ticket_counts: dict[TicketStatus, int] = {}
 
     try:
         async with async_session_maker() as session:

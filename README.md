@@ -104,9 +104,11 @@ cron. Подробнее - в [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 ## Проверки (разработка)
 
 ```bash
-python check_syntax.py
+pip install -r requirements-dev.txt
+pre-commit install      # хуки ruff/mypy/gitleaks перед каждым коммитом
+
 ruff check .
-mypy core web
+mypy core web scripts bots
 pytest -v
 ```
 

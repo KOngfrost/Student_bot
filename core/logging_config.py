@@ -8,10 +8,39 @@
 Хранится 30 архивных файлов.
 """
 
+import json
 import logging
 import logging.handlers
 import os
 import sys
+
+
+class JsonFormatter(logging.Formatter):
+    """JSON-форматер для централизованных систем логирования (ELK/Loki).
+
+    Включается переменной окружения LOG_FORMAT=json.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def _make_formatter() -> logging.Formatter:
+    """Выбрать форматер: JSON (LOG_FORMAT=json) или текстовый (по умолчанию)."""
+    if os.getenv("LOG_FORMAT", "text").strip().lower() == "json":
+        return JsonFormatter()
+    return logging.Formatter(
+        fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
 
 def setup_logging(
@@ -21,6 +50,8 @@ def setup_logging(
     """Настроить логирование в stdout и файлы.
 
     Вызывается один раз при запуске бота или панели.
+    Формат вывода переключается переменной окружения LOG_FORMAT
+    (text — по умолчанию, json — для ELK/Loki).
 
     Args:
         log_dir: Директория для логов (создаётся автоматически).
@@ -29,11 +60,8 @@ def setup_logging(
     # Создаём директорию для логов
     os.makedirs(log_dir, exist_ok=True)
 
-    # Форматер для логов
-    formatter = logging.Formatter(
-        fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    # Форматер для логов (text или json — см. LOG_FORMAT)
+    formatter = _make_formatter()
 
     # Корневой логгер
     root_logger = logging.getLogger()

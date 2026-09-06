@@ -16,7 +16,7 @@
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
@@ -33,6 +33,11 @@ OUTBOX_BATCH_SIZE = int(os.getenv("OUTBOX_BATCH_SIZE", "50"))
 OUTBOX_RETRY_DELAY_SECONDS = int(os.getenv("OUTBOX_INTERVAL_SECONDS", "30"))
 
 
+# Ссылки на запущенные задачи доставки: без сильной ссылки GC может
+# уничтожить задачу до её завершения
+_delivery_tasks: set[asyncio.Task] = set()
+
+
 def fire_outbox_delivery() -> None:
     """Запустить фоновую доставку outbox, если есть работающий event loop.
 
@@ -42,9 +47,12 @@ def fire_outbox_delivery() -> None:
     """
     try:
         asyncio.get_running_loop()
-        asyncio.create_task(deliver_pending_messages())
     except RuntimeError:
         logger.debug("Нет запущенного event loop — outbox доставит воркер")
+        return
+    task = asyncio.create_task(deliver_pending_messages())
+    _delivery_tasks.add(task)
+    task.add_done_callback(_delivery_tasks.discard)
 
 
 def add_outbox_message(session, vk_id: int, text: str) -> VkOutbox:
@@ -72,7 +80,7 @@ async def deliver_pending_messages(
             message.attempts += 1
             if ok:
                 message.status = "sent"
-                message.sent_at = datetime.now(timezone.utc)
+                message.sent_at = datetime.now(UTC)
                 message.error = None
                 delivered += 1
                 logger.info("Outbox: сообщение #%s доставлено vk_id=%s", message.id, message.vk_id)

@@ -1,37 +1,52 @@
 # ============================================================
-# Ruff — linting + formatting
+# Единая конфигурация инструментария: ruff (lint + format) и pytest.
+# mypy живёт в mypy.ini. Файлы ruff.toml и pytest.ini удалены:
+# ruff отдаёт приоритет ruff.toml над pyproject.toml, а pytest —
+# pytest.ini, из-за чего конфигурация дублировалась и конфликтовала.
 # ============================================================
+
 [tool.ruff]
 line-length = 99
-target-version = "py312"
+target-version = "py311"
 src = ["."]
 
 [tool.ruff.lint]
 select = [
-    "E",      # pycodestyle errors
+    "E",      # pycodestyle errors (включая E402)
     "W",      # pycodestyle warnings
-    "F",      # pyflakes (включая F401, F841)
-    "B",      # flake8-bugbear
-    "C901",   # mccabe complexity
-    "I",      # isort
-    "UP",     # pyupgrade
-    "PERF",   # perflint
-    "RUF",    # ruff own rules
+    "F",      # pyflakes: F401 unused imports, F841 unused vars, F811 redefinitions
+    "B",      # flake8-bugbear: вероятные баги
+    "C901",   # mccabe: цикломатическая сложность
+    "I",      # isort: порядок импортов
+    "UP",     # pyupgrade: современный синтаксис
+    "PERF",   # perflint: производительность
+    "RUF",    # собственные правила ruff
     "SIM",    # flake8-simplify
 ]
 ignore = [
-    "E501",   # line length — делегировано formatter
-    "B008",   # function-call in default arg (допустимо для middleware deps)
+    "E501",    # длина строки — делегирована formatter
+    "B008",    # вызов функции в дефолтном аргументе (паттерн FastAPI Depends)
+    # Кириллические «омоглифы» в русских строках/докстрингах/комментариях —
+    # ложные срабатывания для русскоязычного проекта
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # Класс-конфигурация Settings (config-holder, не pydantic BaseSettings)
+    # хранит смысловые неизменяемые коллекции как атрибуты класса
+    "RUF012",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = [
-    "S101",   # assert разрешён в тестах
-    "PLR2004", # magic values в тестах ok
-]
-"alembic/**/*.py" = [
-    "E501",
-]
+# Патч vkbottle (patch_vkbottle_logging) обязан выполниться ДО импортов
+# vkbottle: сортировка импортов (I) и E402 отключены здесь намеренно.
+"bots/vk/bot.py" = ["E402", "I"]
+# Роутеры подключаются после создания app и настройки middleware.
+"web/main.py" = ["E402"]
+# Тесты: импорты идут после настройки окружения в conftest.py.
+"tests/**/*" = ["E402"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
 
 [tool.ruff.format]
 quote-style = "double"
@@ -39,30 +54,16 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 
 # ============================================================
-# Mypy — static type checking
+# Mypy — static type checking (конфигурация в mypy.ini)
 # ============================================================
-[mypy]
-python_version = 3.12
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = true
-disallow_untyped_decorators = false
-strict_optional = true
-follow_imports = normal
-
-[mypy-alembic.*]
-ignore_missing_imports = true
-
-[mypy-vkbottle.*]
-ignore_missing_imports = true
-
-[mypy-vkbottle.tools.*]
-ignore_missing_imports = true
+# ВНИМАНИЕ: этот файл обязан оставаться валидным TOML.
+# Alembic 1.16+ автоматически читает pyproject.toml (в поисках
+# [tool.alembic]) даже при использовании alembic.ini — невалидный
+# TOML обрывает миграции: tomllib.TOMLDecodeError.
+# Обычная INI-секция [mypy] здесь не читается mypy и ломает парсинг.
 
 # ============================================================
-# Pytest
+# Pytest (ранее дублировалось в pytest.ini)
 # ============================================================
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -13,4 +13,5 @@ def patch_vkbottle_logging() -> None:
 
         return ErrorProxy()
 
-    StyleAdapter.opt = opt
+    # Осознанный monkeypatch: у StyleAdapter из vkbottle нет метода opt
+    StyleAdapter.opt = opt  # type: ignore[attr-defined]

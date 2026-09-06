@@ -27,7 +27,9 @@ class BotCore:
                     select(User).where(User.vk_id == vk_id)
                 )
                 if db_user is None:
-                    raise RuntimeError(f"Не удалось получить пользователя vk_id={vk_id} после race condition")
+                    raise RuntimeError(
+                        f"Не удалось получить пользователя vk_id={vk_id} после race condition"
+                    ) from None
                 return db_user
             return db_user
 

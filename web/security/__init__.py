@@ -2,14 +2,12 @@
 
 from web.security.csrf import CSRFMiddleware, get_csrf_token, rotate_csrf_token, validate_csrf
 from web.security.middleware import (
-    _XSS_LOG_PATTERNS,
-    _XSS_PATTERNS,
     CONTENT_SECURITY_POLICY,
     CONTENT_SECURITY_POLICY_BASE,
-    RequestSizeValidator,
     SECURITY_HEADERS,
-    SecurityHeadersMiddleware,
     RateLimiter,
+    RequestSizeValidator,
+    SecurityHeadersMiddleware,
     check_rate_limit,
     escape_for_csv,
     sanitize_csv_field,
@@ -34,6 +32,4 @@ __all__ = [
     "sanitize_html",
     "verify_password",
     "validate_csrf",
-    "_XSS_LOG_PATTERNS",
-    "_XSS_PATTERNS",
 ]

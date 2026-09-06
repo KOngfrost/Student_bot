@@ -14,12 +14,10 @@ CSRF-защита для FastAPI-приложения.
 
 import json
 import secrets
-from typing import Optional
 
-from fastapi import Request, HTTPException
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-
 
 CSRF_SESSION_KEY = "csrf_token"
 CSRF_HEADER_NAME = "x-csrf-token"
@@ -39,7 +37,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
         # POST/PUT/DELETE/PATCH — токен обязателен и должен совпадать с сессией
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
-            token_from_session: Optional[str] = request.session.get(CSRF_SESSION_KEY)
+            token_from_session: str | None = request.session.get(CSRF_SESSION_KEY)
             submitted = await self._extract_token(request)
 
             if not token_from_session or not submitted:
@@ -96,7 +94,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
     async def _token_from_json(self, request: Request) -> str | None:
         """Извлечь csrf_token из JSON-тела и восстановить body для обработчиков.
-        
+
         БЕЗОПАСНОСТЬ: обрабатывает edge-case, когда body уже прочитан
         другим middleware (request._body уже установлен).
         """
@@ -108,10 +106,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                 if not raw:
                     return None
                 request._body = raw
-            
+
             data = json.loads(raw)
             token = data.get(CSRF_FORM_FIELD) if isinstance(data, dict) else None
-            
+
             # Восстанавливаем уже прочитанное тело, чтобы нижестоящие
             # обработчики могли снова вызвать request.json()
             if isinstance(data, dict):
@@ -155,7 +153,7 @@ def rotate_csrf_token(request: Request) -> str:
 
 def validate_csrf(request: Request, token: str) -> bool:
     """Валидировать CSRF-токен из формы/заголовка/JSON."""
-    token_from_session: Optional[str] = request.session.get(CSRF_SESSION_KEY)
+    token_from_session: str | None = request.session.get(CSRF_SESSION_KEY)
     if not token_from_session:
         return False
     return secrets.compare_digest(token, token_from_session)

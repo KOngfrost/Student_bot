@@ -1,12 +1,23 @@
-from sqlalchemy import (
-    Column, Integer, String, Text, Boolean, DateTime, Date,
-    ForeignKey, Enum as SAEnum, UniqueConstraint, Index, CheckConstraint, event
-)
-from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy.sql import func
 import enum
 
 import bleach
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+)
+from sqlalchemy import Enum as SAEnum
+from sqlalchemy.orm import Mapped, declarative_base, relationship
+from sqlalchemy.sql import func
 
 Base = declarative_base()
 
@@ -14,7 +25,7 @@ Base = declarative_base()
 # Это обеспечивает максимальную безопасность — пользовательский ввод
 # хранится как чистый текст без HTML-разметки.
 _SANITIZE_ALLOWED_TAGS: list[str] = []
-_SANITIZE_ALLOWED_ATTRIBUTES: dict[str, list[str] | bool] = {}
+_SANITIZE_ALLOWED_ATTRIBUTES: dict[str, list[str]] = {}
 
 
 # ==========================================
@@ -52,7 +63,7 @@ def sanitize_xss(value: str) -> str:
 @event.listens_for(Text, "before_update", propagate=True)
 def sanitize_text_columns(target, value, oldvalue, initiator):
     """Автоматическая санитизация всех Text-колонок перед записью.
-    
+
     Применяется ко всем моделям, использующим Text-колонки:
     - Ticket.description
     - Ticket.topic
@@ -65,7 +76,7 @@ def sanitize_text_columns(target, value, oldvalue, initiator):
     if initiator is not None:
         col_name = initiator.key
         # Санитизируем только текстовые поля с пользовательским вводом
-        if col_name in ("description", "topic", "message", "response_text", 
+        if col_name in ("description", "topic", "message", "response_text",
                         "details", "answer", "question", "final_answer",
                         "keywords", "title", "button_text"):
             sanitized = sanitize_xss(target.__dict__.get(col_name))
@@ -108,11 +119,13 @@ class Department(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
 
-    admins = relationship("Admin", back_populates="department")
-    tickets = relationship("Ticket", back_populates="department")
-    knowledge_base = relationship("KnowledgeBase", back_populates="department")
-    faq_nodes = relationship("FAQNode", back_populates="department")
-    events = relationship("Event", back_populates="department")
+    admins: Mapped[list["Admin"]] = relationship("Admin", back_populates="department")
+    tickets: Mapped[list["Ticket"]] = relationship("Ticket", back_populates="department")
+    knowledge_base: Mapped[list["KnowledgeBase"]] = relationship(
+        "KnowledgeBase", back_populates="department"
+    )
+    faq_nodes: Mapped[list["FAQNode"]] = relationship("FAQNode", back_populates="department")
+    events: Mapped[list["Event"]] = relationship("Event", back_populates="department")
 
 
 class User(Base):
@@ -124,10 +137,14 @@ class User(Base):
     dormitory = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    tickets = relationship("Ticket", back_populates="user")
-    subscriptions = relationship("Subscription", back_populates="user")
-    registrations = relationship("Registration", back_populates="user")
-    logs = relationship("Log", back_populates="user")
+    tickets: Mapped[list["Ticket"]] = relationship("Ticket", back_populates="user")
+    subscriptions: Mapped[list["Subscription"]] = relationship(
+        "Subscription", back_populates="user"
+    )
+    registrations: Mapped[list["Registration"]] = relationship(
+        "Registration", back_populates="user"
+    )
+    logs: Mapped[list["Log"]] = relationship("Log", back_populates="user")
 
 
 class Admin(Base):
@@ -138,8 +155,10 @@ class Admin(Base):
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
     role = Column(SAEnum(UserRole), default=UserRole.ADMIN)
 
-    user = relationship("User")
-    department = relationship("Department", back_populates="admins")
+    user: Mapped["User"] = relationship("User")
+    department: Mapped["Department | None"] = relationship(
+        "Department", back_populates="admins"
+    )
 
 
 class Ticket(Base):
@@ -163,9 +182,11 @@ class Ticket(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    user = relationship("User", back_populates="tickets")
-    department = relationship("Department", back_populates="tickets")
-    messages = relationship(
+    user: Mapped["User | None"] = relationship("User", back_populates="tickets")
+    department: Mapped["Department | None"] = relationship(
+        "Department", back_populates="tickets"
+    )
+    messages: Mapped[list["TicketMessage"]] = relationship(
         "TicketMessage",
         back_populates="ticket",
         cascade="all, delete-orphan",
@@ -195,7 +216,7 @@ class TicketMessage(Base):
     message = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    ticket = relationship("Ticket", back_populates="messages")
+    ticket: Mapped["Ticket"] = relationship("Ticket", back_populates="messages")
 
 
 class WebUser(Base):
@@ -211,7 +232,7 @@ class WebUser(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 
-    department = relationship("Department")
+    department: Mapped["Department | None"] = relationship("Department")
 
 
 class ReportRun(Base):
@@ -236,7 +257,7 @@ class KnowledgeBase(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    department = relationship("Department", back_populates="knowledge_base")
+    department: Mapped["Department"] = relationship("Department", back_populates="knowledge_base")
 
 
 class FAQNode(Base):
@@ -261,9 +282,14 @@ class FAQNode(Base):
     order_index = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    department = relationship("Department", back_populates="faq_nodes")
-    parent = relationship("FAQNode", remote_side="FAQNode.id", back_populates="children")
-    children = relationship("FAQNode", back_populates="parent")
+    department: Mapped["Department"] = relationship("Department", back_populates="faq_nodes")
+    parent: Mapped["FAQNode | None"] = relationship(
+        "FAQNode", remote_side="FAQNode.id", back_populates="children"
+    )
+    children: Mapped[list["FAQNode"]] = relationship("FAQNode", back_populates="parent")
+
+    # Transient field (not persisted to DB) — used by _attach_depths for tree rendering
+    depth: int = 0
 
 
 class Subscription(Base):
@@ -278,7 +304,7 @@ class Subscription(Base):
 
     __table_args__ = (UniqueConstraint("user_id", "department_id", name="uq_subscription_user_department"),)
 
-    user = relationship("User", back_populates="subscriptions")
+    user: Mapped["User"] = relationship("User", back_populates="subscriptions")
 
 
 class Event(Base):
@@ -293,8 +319,8 @@ class Event(Base):
     event_date = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    department = relationship("Department", back_populates="events")
-    registrations = relationship(
+    department: Mapped["Department"] = relationship("Department", back_populates="events")
+    registrations: Mapped[list["Registration"]] = relationship(
         "Registration",
         back_populates="event",
         cascade="all, delete-orphan",
@@ -314,8 +340,8 @@ class Registration(Base):
     event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
     registered_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    user = relationship("User", back_populates="registrations")
-    event = relationship("Event", back_populates="registrations")
+    user: Mapped["User"] = relationship("User", back_populates="registrations")
+    event: Mapped["Event"] = relationship("Event", back_populates="registrations")
 
 
 class Log(Base):
@@ -327,7 +353,7 @@ class Log(Base):
     details = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    user = relationship("User", back_populates="logs")
+    user: Mapped["User | None"] = relationship("User", back_populates="logs")
 
 
 class LoginAttempt(Base):

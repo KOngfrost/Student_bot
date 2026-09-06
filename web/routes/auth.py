@@ -16,14 +16,14 @@
 import logging
 import secrets
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import delete, func, select
 
-from core.config import settings
 from core import database as core_db
+from core.config import settings
 from core.models import Log, LoginAttempt, WebRole, WebUser
 from core.vk_client import send_vk_message
 from web.security.csrf import get_csrf_token
@@ -88,9 +88,9 @@ def _get_client_ip(request: Request) -> str:
 async def _db_recent_failed_count(ip: str) -> int:
     """Сколько неудачных попыток за окно в базе. -1 — БД недоступна."""
     try:
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=_LOGIN_WINDOW_SECONDS)
+        cutoff = datetime.now(UTC) - timedelta(seconds=_LOGIN_WINDOW_SECONDS)
         async with core_db.async_session_maker() as session:
-            count = await session.scalar(
+            count: int | None = await session.scalar(
                 select(func.count(LoginAttempt.id)).where(
                     LoginAttempt.ip == ip,
                     LoginAttempt.success.is_(False),
@@ -176,7 +176,7 @@ async def _bootstrap_disabled_in_db() -> bool:
     """
     try:
         async with core_db.async_session_maker() as session:
-            count = await session.scalar(
+            count: int | None = await session.scalar(
                 select(func.count(WebUser.id)).where(WebUser.is_active.is_(True))
             )
             return int(count or 0) == 0
@@ -270,8 +270,8 @@ async def login(request: Request):
     """Обработка входа с rate limiting и журналированием."""
     client_ip = _get_client_ip(request)
     form = await request.form()
-    username = str(form.get("username", ""))
-    password = str(form.get("password", ""))
+    username: str = str(form.get("username", ""))
+    password: str = str(form.get("password", ""))
 
     if await _is_rate_limited(client_ip):
         details = f"Блокировка IP {client_ip}: превышен лимит попыток входа (username={username!r})"
@@ -287,7 +287,7 @@ async def login(request: Request):
             status_code=429,
         )
 
-    user_data = await _authenticate(username, password)
+    user_data: dict | None = await _authenticate(username, password)
 
     if user_data is None:
         await _record_failed_attempt(client_ip)
@@ -319,28 +319,28 @@ async def login(request: Request):
 @router.post("/logout")
 async def logout(request: Request):
     """Выход из системы (POST с CSRF-токеном, а не GET).
-    
+
     Полная инвалидация сессии:
     - Очистка всех данных сессии
     - Генерация нового CSRF-токена (старый становится невалидным)
     - Удаление session cookie (чтобы избежать повторного использования)
     """
-    user_data = request.session.get("user")
-    username = user_data.get("username", "unknown") if user_data else "unknown"
-    
+    user_data: dict | None = request.session.get("user")
+    username: str = user_data.get("username", "unknown") if user_data else "unknown"
+
     # Логируем выход
     await _log_action(
         "web_logout",
         f"Выполнен выход пользователя {username}",
     )
-    
+
     # Полная инвалидация сессии
     request.session.clear()
-    
+
     # Генерируем новый CSRF-токен — старый становится невалидным.
     # Это предотвращает повторную активацию сессии при stateless-сессиях.
     request.session["csrf_token"] = secrets.token_urlsafe(32)
-    
+
     return RedirectResponse(url="/auth/login", status_code=303)
 
 
@@ -350,13 +350,13 @@ async def logout(request: Request):
 
 def require_crud_rate_limit(request: Request):
     """Зависимость FastAPI для rate limiting CRUD-операций.
-    
+
     Использовать как Depends(require_crud_rate_limit) на POST-маршрутах.
     Лимит: 20 операций на IP за 5 минут.
     При превышении — 429 Too Many Requests с блокировкой на 1 минуту.
     """
     client_ip = _get_client_ip(request)
-    
+
     if not _crud_rate_limiter.is_allowed(client_ip):
         logger.warning("CRUD rate limit превышен для IP %s", client_ip)
         raise HTTPException(
