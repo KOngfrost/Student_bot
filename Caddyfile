@@ -1,7 +1,7 @@
 # Caddyfile: Закрытый контур для веб-панели через NetBird VPN
 # Доступ разрешён ТОЛЬКО авторизованным узлам NetBird (100.64.0.0/10) и доверенным приватным сетям.
 # Любые неавторизованные запросы из публичного интернета немедленно сбрасываются (abort).
-{$DOMAIN:yenotick.duckdns.org} {
+(protected_proxy) {
     @allowed {
         remote_ip 100.64.0.0/10 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1
     }
@@ -17,3 +17,19 @@
         abort
     }
 }
+
+# Публичный домен DuckDNS (Let's Encrypt SSL, доступ только из VPN)
+{$DOMAIN:yenotick.duckdns.org} {
+    import protected_proxy
+}
+
+# Локальный защищённый доступ по NetBird MagicDNS, NetBird IP и localhost
+http://oss-web-panel.netbird.cloud, http://100.89.148.247, http://localhost {
+    import protected_proxy
+}
+
+https://oss-web-panel.netbird.cloud {
+    tls internal
+    import protected_proxy
+}
+
