@@ -10,7 +10,7 @@ jobs:
     name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -22,7 +22,7 @@ jobs:
     name: Type check (mypy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -61,7 +61,7 @@ jobs:
       SESSION_SECRET_KEY: ci_super_secret_session_key_1234567890_test
       APP_ENV: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -79,7 +79,7 @@ jobs:
     name: Docker build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -f Dockerfile -t oss-bot .
       - run: docker build -f Dockerfile.web -t oss-bot-web .
 
@@ -87,7 +87,7 @@ jobs:
     name: Tests (Go backend)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version: "1.23"
@@ -103,7 +103,7 @@ jobs:
     name: Tests (Playwright, кнопки интерфейса)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -120,7 +120,7 @@ jobs:
     name: PgBouncer SEC-12 (валидация конфигурации)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Проверить, что в pgbouncer.ini нет открытых паролей
         run: |
           # userlist.txt в репозитории отсутствует (.gitignore) —
@@ -139,7 +139,7 @@ jobs:
     name: Security audit (pip-audit & secret scanning)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
